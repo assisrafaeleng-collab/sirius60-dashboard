@@ -15,10 +15,13 @@ export default async function handler(req, res) {
         .from('custos_lancamentos')
         .select('*').eq('obra_id', obra_id).order('data_emissao', { ascending: false })
       if (error) throw new Error(error.message)
-      const lista = (data || []).map(l => ({
-        ...l, semana: dataParaSemana(l.data_emissao),
-      })).filter(l => l.semana == null || l.semana <= semana)
-      return res.status(200).json({ lancamentos: lista })
+      // devolve TUDO: esconder nota por causa do filtro faz parecer que
+      // a gravação falhou. Quem decide o recorte é a tela.
+      const lista = (data || []).map(l => {
+        const sem = dataParaSemana(l.data_emissao)
+        return { ...l, semana: sem, fora_do_filtro: sem != null && sem > semana }
+      })
+      return res.status(200).json({ lancamentos: lista, semana })
     } catch (e) {
       return res.status(500).json({ error: 'Erro ao buscar', message: e.message })
     }

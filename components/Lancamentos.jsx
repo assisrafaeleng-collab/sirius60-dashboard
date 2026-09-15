@@ -22,6 +22,7 @@ export default function Lancamentos({ semana, sessao }) {
   const [fGrupo, setFGrupo] = useState('')
   const [fPav, setFPav] = useState('')
   const [fStatus, setFStatus] = useState('')
+  const [soAteSemana, setSoAteSemana] = useState(false)
 
   const vazio = {
     data_emissao: '', valor: '', codigo_eap: '', fornecedor: '', historico: '',
@@ -69,6 +70,7 @@ export default function Lancamentos({ semana, sessao }) {
     if (!lista) return []
     const q = busca.trim().toLowerCase()
     return lista.filter(l => {
+      if (soAteSemana && l.fora_do_filtro) return false
       if (fGrupo && l.grupo_custo !== fGrupo) return false
       if (fPav && l.pavimento !== fPav) return false
       if (fStatus && l.status !== fStatus) return false
@@ -76,9 +78,10 @@ export default function Lancamentos({ semana, sessao }) {
       return [l.fornecedor, l.historico, l.codigo_eap, l.num_documento]
         .some(c => (c || '').toLowerCase().includes(q))
     })
-  }, [lista, busca, fGrupo, fPav, fStatus])
+  }, [lista, busca, fGrupo, fPav, fStatus, soAteSemana])
 
-  const totalFiltrado = filtrados.filter(l => CONTA(l.status))
+  const totalFiltrado = filtrados
+    .filter(l => CONTA(l.status) && !l.fora_do_filtro)
     .reduce((s, l) => s + parseFloat(l.valor || 0), 0)
 
   async function salvar() {
@@ -90,7 +93,9 @@ export default function Lancamentos({ semana, sessao }) {
       })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao gravar')
-      setToast({ tipo: 'ok', txt: `Lançamento gravado na S${j.semana}.` })
+      setToast({ tipo: 'ok', txt: j.semana > semana
+        ? `Gravado na S${j.semana} — posterior à S${semana} do filtro, por isso aparece marcado na lista.`
+        : `Lançamento gravado na S${j.semana}.` })
       setF({ ...vazio })
       carregar()
     } catch (e) {
@@ -135,6 +140,23 @@ export default function Lancamentos({ semana, sessao }) {
       </div>
 
       {toast && <div className={'toast ' + (toast.tipo === 'ok' ? 'toast-ok' : 'toast-err')}>{toast.txt}</div>}
+
+      {lista && lista.some(l => l.fora_do_filtro) && (
+        <div className="alert-strip ok" style={{ marginBottom: 12 }}>
+          <div className="alert-main">
+            <div className="alert-text">
+              {lista.filter(l => l.fora_do_filtro).length} nota(s) com data posterior
+              à S{semana}. Elas aparecem na lista marcadas como <b>fora do filtro</b> e
+              não entram no total nem nos indicadores desta semana.
+            </div>
+          </div>
+          <div className="alert-pills">
+            <button className="btn-sm" onClick={() => setSoAteSemana(!soAteSemana)}>
+              {soAteSemana ? 'Mostrar todas' : `Ocultar as posteriores`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {abrindo && (
         <div className="form-section">
@@ -278,8 +300,10 @@ export default function Lancamentos({ semana, sessao }) {
                 {filtrados.map(l => (
                   <tr key={l.id} style={CONTA(l.status) ? null : { opacity: .5 }}>
                     <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{fmtDate(l.data_emissao)}</td>
-                    <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
-                      S{l.semana}
+                    <td style={{ fontFamily: 'var(--mono)', fontSize: 11,
+                                 color: l.fora_do_filtro ? 'var(--amber-tx)' : 'var(--text3)' }}
+                        title={l.fora_do_filtro ? `Posterior à S${semana} do filtro` : ''}>
+                      S{l.semana}{l.fora_do_filtro && ' ▸'}
                     </td>
                     <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{l.codigo_eap || '—'}</td>
                     <td>

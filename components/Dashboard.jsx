@@ -54,8 +54,8 @@ export default function Dashboard({ semana, sessao }) {
         <span className="btn-row">
           {[['custo', 'Custo do orçamento'], ['horas', 'Horas de mão de obra']].map(([v, l]) => (
             <button key={v} className="btn-sm" onClick={() => setBase(v)}
-              style={base === v ? { background: 'var(--accent)', color: '#1a1a1a',
-                                    borderColor: 'var(--accent)' } : null}>{l}</button>
+              style={base === v ? { background: 'var(--text)', color: 'var(--bg)',
+                                    borderColor: 'var(--text)' } : null}>{l}</button>
           ))}
         </span>
         <span className="kpi-sub">
@@ -127,14 +127,20 @@ function Kpis({ k, semana, base }) {
   const desvio = desvFis
   const temDesvio = desvio != null
 
+  // Planejado: referencia, matiz frio. Realizado: medido, claro + pilula.
+  // Saldo: verde quando sobra, vermelho quando estoura.
+  const PLAN = '#6e8ba8'
+  const REAL = '#f2f4f7'
+  const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px',
+                 borderRadius: 6 }
   const corSaldo = v => v >= 0 ? 'var(--green-tx)' : 'var(--red-tx)'
   const legSaldo = v => v >= 0 ? 'Economia' : 'Estouro'
   const pctDe = (real, plan) => plan > 0 ? fmtPct(100 * real / plan) + ' do planejado' : '—'
 
   const cards = [
-    { l: 'Custo direto planejado', v: fmtMoeda(dirPlan), s: `Acumulado até S${semana}`,
+    { l: 'Custo direto planejado', c: PLAN, v: fmtMoeda(dirPlan), s: `Acumulado até S${semana}`,
       link: `/custos-diretos?semana=${semana}` },
-    { l: 'Custo direto realizado', v: fmtMoeda(dirReal), s: pctDe(dirReal, dirPlan),
+    { l: 'Custo direto realizado', c: REAL, pill: true, v: fmtMoeda(dirReal), s: pctDe(dirReal, dirPlan),
       link: `/custos-diretos?semana=${semana}` },
     { l: 'Saldo custo direto', v: fmtMoeda(saldoDir),
       s: legSaldo(saldoDir), c: corSaldo(saldoDir), cs: corSaldo(saldoDir) },
@@ -150,9 +156,9 @@ function Kpis({ k, semana, base }) {
       cs: !temDesvio ? null : desvio >= 0 ? 'var(--green-tx)'
          : desvio > -5 ? 'var(--amber-tx)' : 'var(--red-tx)' },
 
-    { l: 'Custo indireto planejado', v: fmtMoeda(indPlan), s: `Acumulado até S${semana}`,
+    { l: 'Custo indireto planejado', c: PLAN, v: fmtMoeda(indPlan), s: `Acumulado até S${semana}`,
       link: `/custos-indiretos?semana=${semana}` },
-    { l: 'Custo indireto realizado', v: fmtMoeda(indReal), s: pctDe(indReal, indPlan),
+    { l: 'Custo indireto realizado', c: REAL, pill: true, v: fmtMoeda(indReal), s: pctDe(indReal, indPlan),
       link: `/custos-indiretos?semana=${semana}` },
     { l: 'Saldo custo indireto', v: fmtMoeda(saldoInd),
       s: legSaldo(saldoInd), c: corSaldo(saldoInd), cs: corSaldo(saldoInd) },
@@ -177,7 +183,9 @@ function Kpis({ k, semana, base }) {
           <div className="kpi-label">
             {c.l}{c.link && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>→</span>}
           </div>
-          <div className="kpi-value" style={c.c ? { color: c.c } : null}>{c.v}</div>
+          <div className="kpi-value" style={c.c ? { color: c.c } : null}>
+            {c.pill ? <span style={PILL}>{c.v}</span> : c.v}
+          </div>
           <div className="kpi-sub" style={c.cs ? { color: c.cs } : null}>{c.s}</div>
         </div>
       ))}

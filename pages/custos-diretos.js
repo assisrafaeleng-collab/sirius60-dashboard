@@ -181,13 +181,13 @@ export default function CustosDiretos() {
                 </div>
               </div>
               <div className="kpi" style={{
-                borderLeft: `3px solid ${saldo >= 0 ? 'var(--border)' : 'var(--red)'}` }}>
+                borderLeft: `3px solid ${saldo >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
                 <div className="kpi-label">Saldo</div>
                 <div className="kpi-value" style={{
-                  color: saldo >= 0 ? 'var(--text2)' : 'var(--red-tx)' }}>
+                  color: saldo >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
                   {fmtMoeda(saldo)}
                 </div>
-                <div className="kpi-sub" style={saldo >= 0 ? null : { color: 'var(--red-tx)' }}>
+                <div className="kpi-sub" style={{ color: saldo >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
                   {saldo >= 0 ? 'Economia sobre o planejado'
                               : 'Estouro sobre o planejado'}
                 </div>
