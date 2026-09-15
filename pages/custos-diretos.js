@@ -5,8 +5,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel,
          inicioSemana, fimSemana, semanaAtualObra } from '../lib/constants'
 
-const AZUL = '#5B9BD5'
-const ROSA = '#E91E8C'
+// Planejado é referência: fica em cinza. Realizado é o número que se procura:
+// fica claro. Cor só entra onde há desvio relevante — ver corDesvio abaixo.
+const PLAN = 'var(--text3)'
+const REAL = 'var(--text)'
+
+// Zona morta: desvio pequeno é ruído de medição, não ganha cor.
+const LIM_NEUTRO = 15   // abaixo disso, cinza
+const LIM_ALERTA = 30   // acima disso, estouro
 
 export default function CustosDiretos() {
   const router = useRouter()
@@ -81,8 +87,26 @@ export default function CustosDiretos() {
 
   const desvioDe = (plan, real) => plan > 0 ? 100 * (real - plan) / plan
                                             : (real > 0 ? 100 : null)
+
+  // Cinza é o estado normal. Só sai do cinza quem passou dos limites acima.
   const corDesvio = dv => dv == null ? 'var(--text3)'
-    : dv > 5 ? 'var(--red-tx)' : dv > -5 ? 'var(--amber-tx)' : 'var(--green-tx)'
+    : dv >= LIM_ALERTA ? 'var(--red-tx)'
+    : dv >= LIM_NEUTRO ? 'var(--amber-tx)'
+    : dv <= -LIM_NEUTRO ? 'var(--green-tx)'
+    : 'var(--text3)'
+
+  // A barra não repete a cor do desvio: ela só acende quando há estouro.
+  const corBarra = dv => dv == null ? 'var(--text3)'
+    : dv >= LIM_ALERTA ? 'var(--red)'
+    : dv >= LIM_NEUTRO ? 'var(--amber)'
+    : 'var(--text3)'
+
+  // Segundo canal de leitura: sobrevive à impressão em preto e branco.
+  const seta = dv => dv > 0 ? '▲ ' : dv < 0 ? '▼ ' : ''
+  const txtDesvio = (dv, casas) => dv == null ? '—'
+    : seta(dv) + fmtPct(Math.abs(dv), casas)
+
+  const saldo = totalFiltrado - realTotal
   const vs = visao === 'vs'
 
   const blocos = useMemo(() => {
@@ -102,6 +126,11 @@ export default function CustosDiretos() {
     : fmtPct(totalFiltrado > 0 ? 100 * custo / totalFiltrado : 0)
 
   const fmtBR = d => d.toLocaleDateString('pt-BR')
+
+  // Estado selecionado dos filtros: contraste, não cor. O âmbar fica
+  // reservado para "atenção" nos dados.
+  const selecionado = { background: 'var(--text)', color: 'var(--bg)',
+                        borderColor: 'var(--text)' }
 
   return (
     <>
@@ -130,42 +159,43 @@ export default function CustosDiretos() {
         <div style={{ marginTop: 22 }}>
           {vs ? (
             <div className="kpi-grid">
-              <div className="kpi" style={{ borderLeft: `3px solid ${AZUL}` }}>
+              <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
                 <div className="kpi-label">Planejado até S{semana}</div>
-                <div className="kpi-value" style={{ color: AZUL }}>{fmtMoeda(totalFiltrado)}</div>
+                <div className="kpi-value" style={{ color: PLAN }}>{fmtMoeda(totalFiltrado)}</div>
                 <div className="kpi-sub">
                   {blocos.length} grupos · {filtrados.length} itens ativos
                 </div>
               </div>
-              <div className="kpi" style={{ borderLeft: `3px solid ${ROSA}` }}>
+              <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
                 <div className="kpi-label">Realizado até S{semana}</div>
-                <div className="kpi-value" style={{ color: ROSA }}>{fmtMoeda(realTotal)}</div>
+                <div className="kpi-value" style={{ color: REAL }}>{fmtMoeda(realTotal)}</div>
                 <div className="kpi-sub">
                   {api ? `${api.metadata.lancamentos} lançamentos na obra` : 'carregando…'}
                 </div>
               </div>
               <div className="kpi" style={{
-                borderLeft: `3px solid ${totalFiltrado - realTotal >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
+                borderLeft: `3px solid ${saldo >= 0 ? 'var(--border)' : 'var(--red)'}` }}>
                 <div className="kpi-label">Saldo</div>
                 <div className="kpi-value" style={{
-                  color: totalFiltrado - realTotal >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
-                  {fmtMoeda(totalFiltrado - realTotal)}
+                  color: saldo >= 0 ? REAL : 'var(--red-tx)' }}>
+                  {fmtMoeda(saldo)}
                 </div>
-                <div className="kpi-sub" style={{
-                  color: totalFiltrado - realTotal >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
-                  {totalFiltrado - realTotal >= 0 ? 'Economia sobre o planejado'
-                                                  : 'Estouro sobre o planejado'}
+                <div className="kpi-sub" style={saldo >= 0 ? null : { color: 'var(--red-tx)' }}>
+                  {saldo >= 0 ? 'Economia sobre o planejado'
+                              : 'Estouro sobre o planejado'}
                 </div>
               </div>
               <div className="kpi" style={{ borderLeft: `3px solid ${corDesvio(desvioTotal)}` }}>
                 <div className="kpi-label">Desvio financeiro</div>
                 <div className="kpi-value" style={{ color: corDesvio(desvioTotal) }}>
-                  {desvioTotal == null ? '—'
-                    : (desvioTotal > 0 ? '+' : '') + fmtPct(desvioTotal)}
+                  {txtDesvio(desvioTotal)}
                 </div>
-                <div className="kpi-sub" style={{ color: corDesvio(desvioTotal) }}>
+                <div className="kpi-sub">
                   {desvioTotal == null ? 'sem base de comparação'
-                    : desvioTotal <= 0 ? 'Dentro do orçamento' : 'Acima do orçamento'}
+                    : desvioTotal >= LIM_ALERTA ? 'Acima do orçamento'
+                    : desvioTotal >= LIM_NEUTRO ? 'Levemente acima'
+                    : desvioTotal <= -LIM_NEUTRO ? 'Economia sobre o planejado'
+                    : 'Em linha com o planejado'}
                 </div>
               </div>
             </div>
@@ -220,9 +250,7 @@ export default function CustosDiretos() {
                 <div className="btn-row">
                   {[['ate', `Acumulado até S${semana}`], ['na', `Só a S${semana}`]].map(([v, l]) => (
                     <button key={v} className="btn-sm" onClick={() => setModo(v)}
-                      style={modo === v
-                        ? { background: 'var(--accent)', color: '#1a1a1a', borderColor: 'var(--accent)' }
-                        : null}>{l}</button>
+                      style={modo === v ? selecionado : null}>{l}</button>
                   ))}
                 </div>
               </div>
@@ -233,9 +261,7 @@ export default function CustosDiretos() {
                 <div className="btn-row">
                   {[['grupo', 'Macrogrupo'], ['pav', 'Pavimento']].map(([v, l]) => (
                     <button key={v} className="btn-sm" onClick={() => setAgrupar(v)}
-                      style={agrupar === v
-                        ? { background: 'var(--accent)', color: '#1a1a1a', borderColor: 'var(--accent)' }
-                        : null}>{l}</button>
+                      style={agrupar === v ? selecionado : null}>{l}</button>
                   ))}
                 </div>
               </div>
@@ -244,9 +270,7 @@ export default function CustosDiretos() {
                 <div className="btn-row">
                   {['%', 'R$', 'Hh'].map(v => (
                     <button key={v} className="btn-sm" onClick={() => setMetrica(v)}
-                      style={metrica === v
-                        ? { background: 'var(--accent)', color: '#1a1a1a', borderColor: 'var(--accent)' }
-                        : null}>{v}</button>
+                      style={metrica === v ? selecionado : null}>{v}</button>
                   ))}
                 </div>
               </div>
@@ -261,6 +285,7 @@ export default function CustosDiretos() {
               </div>
             ) : blocos.map(b => {
               const pctTotal = totalFiltrado > 0 ? 100 * b.custo / totalFiltrado : 0
+              const dvBloco = desvioDe(b.custo, b.real)
               const on = aberto[b.chave]
               return (
                 <div className="card" key={b.chave} style={{ padding: 0, overflow: 'hidden' }}>
@@ -283,7 +308,7 @@ export default function CustosDiretos() {
                       </div>
                     </div>
                     <div style={{ textAlign: 'right', minWidth: 96 }}>
-                      <div style={{ font: '600 14px var(--mono)', color: vs ? AZUL : 'var(--accent)' }}>
+                      <div style={{ font: '600 14px var(--mono)', color: vs ? PLAN : 'var(--accent)' }}>
                         {valorMetrica(b.custo, b.hh)}
                       </div>
                       <div className="kpi-sub">{vs ? 'planejado' : fmtPct(pctTotal, 2) + ' do total'}</div>
@@ -291,7 +316,7 @@ export default function CustosDiretos() {
                     {vs && (
                       <>
                         <div style={{ textAlign: 'right', minWidth: 96 }}>
-                          <div style={{ font: '600 14px var(--mono)', color: ROSA }}>
+                          <div style={{ font: '600 14px var(--mono)', color: REAL }}>
                             {b.real > 0 ? fmtMoedaK(b.real)
                               : <span style={{ color: 'var(--text3)' }}>—</span>}
                           </div>
@@ -299,10 +324,8 @@ export default function CustosDiretos() {
                         </div>
                         <div style={{ textAlign: 'right', minWidth: 60,
                                       font: '600 13px var(--mono)',
-                                      color: corDesvio(desvioDe(b.custo, b.real)) }}>
-                          {desvioDe(b.custo, b.real) == null ? '—'
-                            : (desvioDe(b.custo, b.real) > 0 ? '+' : '')
-                              + fmtPct(desvioDe(b.custo, b.real))}
+                                      color: corDesvio(dvBloco) }}>
+                          {txtDesvio(dvBloco)}
                         </div>
                       </>
                     )}
@@ -310,7 +333,7 @@ export default function CustosDiretos() {
                       <div className="prog-fill" style={{
                         width: (vs ? (b.custo > 0 ? Math.min(100 * b.real / b.custo, 100) : 0)
                                    : pctTotal) + '%',
-                        background: vs ? corDesvio(desvioDe(b.custo, b.real)) : 'var(--accent)' }} />
+                        background: vs ? corBarra(dvBloco) : 'var(--accent)' }} />
                     </div>
                     <span style={{ color: 'var(--text3)', fontSize: 11 }}>{on ? '▲' : '▼'}</span>
                   </div>
@@ -333,29 +356,27 @@ export default function CustosDiretos() {
                                            color: 'var(--text3)' }}>
                                 S{i.a}–S{i.b}
                                 {i._f != null && i._f < 1 && (
-                                  <span style={{ color: 'var(--amber-tx)' }}>
+                                  <span style={{ color: 'var(--text3)' }}>
                                     {' '}{Math.round(i._f * 100)}%
                                   </span>
                                 )}
                               </td>
                               <td style={{ width: 96, textAlign: 'right',
                                            fontFamily: 'var(--mono)',
-                                           color: vs ? AZUL : 'var(--text)' }}>
+                                           color: vs ? PLAN : 'var(--text)' }}>
                                 {valorMetrica(i.c, i.h)}
                               </td>
                               {vs && (
                                 <>
                                   <td style={{ width: 96, textAlign: 'right',
-                                               fontFamily: 'var(--mono)', color: ROSA }}>
+                                               fontFamily: 'var(--mono)', color: REAL }}>
                                     {i._real > 0 ? fmtMoedaK(i._real)
                                       : <span style={{ color: 'var(--text3)' }}>—</span>}
                                   </td>
                                   <td style={{ width: 60, textAlign: 'right', fontSize: 11,
                                                fontFamily: 'var(--mono)',
                                                color: corDesvio(desvioDe(i.c, i._real)) }}>
-                                    {desvioDe(i.c, i._real) == null ? '—'
-                                      : (desvioDe(i.c, i._real) > 0 ? '+' : '')
-                                        + fmtPct(desvioDe(i.c, i._real), 0)}
+                                    {txtDesvio(desvioDe(i.c, i._real), 0)}
                                   </td>
                                 </>
                               )}
@@ -375,7 +396,8 @@ export default function CustosDiretos() {
               S{semana}. O <b>realizado</b> vem das notas lançadas, rateado entre os
               pavimentos de cada EAP na proporção do orçamento. Desvio negativo significa
               gastar menos do que o previsto até aqui — o que pode ser economia ou serviço
-              atrasado, e é a medição física que distingue os dois casos.
+              atrasado, e é a medição física que distingue os dois casos. Desvios de até{' '}
+              {LIM_NEUTRO}% aparecem em cinza por serem ruído de medição.
             </div>
           )}
         </div>
