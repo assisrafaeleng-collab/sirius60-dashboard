@@ -7,8 +7,13 @@ import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel,
 
 // Planejado é referência: fica em cinza. Realizado é o número que se procura:
 // fica claro. Cor só entra onde há desvio relevante — ver corDesvio abaixo.
-const PLAN = 'var(--text3)'
-const REAL = 'var(--text)'
+const PLAN = '#6e8ba8'   // azul lavado: valor de referencia, canal proprio
+const REAL = '#f2f4f7'   // medido em campo: o numero que se procura
+
+// O realizado ganha fundo sutil para nao se confundir com o saldo,
+// que tambem e claro e fica ao lado nos cards do topo.
+const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px',
+               borderRadius: 6, fontWeight: 500 }
 
 // Zona morta: desvio pequeno é ruído de medição, não ganha cor.
 const LIM_NEUTRO = 15   // abaixo disso, cinza
@@ -168,7 +173,9 @@ export default function CustosDiretos() {
               </div>
               <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
                 <div className="kpi-label">Realizado até S{semana}</div>
-                <div className="kpi-value" style={{ color: REAL }}>{fmtMoeda(realTotal)}</div>
+                <div className="kpi-value">
+                  <span style={{ ...PILL, color: REAL }}>{fmtMoeda(realTotal)}</span>
+                </div>
                 <div className="kpi-sub">
                   {api ? `${api.metadata.lancamentos} lançamentos na obra` : 'carregando…'}
                 </div>
@@ -177,7 +184,7 @@ export default function CustosDiretos() {
                 borderLeft: `3px solid ${saldo >= 0 ? 'var(--border)' : 'var(--red)'}` }}>
                 <div className="kpi-label">Saldo</div>
                 <div className="kpi-value" style={{
-                  color: saldo >= 0 ? REAL : 'var(--red-tx)' }}>
+                  color: saldo >= 0 ? 'var(--text2)' : 'var(--red-tx)' }}>
                   {fmtMoeda(saldo)}
                 </div>
                 <div className="kpi-sub" style={saldo >= 0 ? null : { color: 'var(--red-tx)' }}>
@@ -317,7 +324,7 @@ export default function CustosDiretos() {
                       <>
                         <div style={{ textAlign: 'right', minWidth: 96 }}>
                           <div style={{ font: '600 14px var(--mono)', color: REAL }}>
-                            {b.real > 0 ? fmtMoedaK(b.real)
+                            {b.real > 0 ? <span style={PILL}>{fmtMoedaK(b.real)}</span>
                               : <span style={{ color: 'var(--text3)' }}>—</span>}
                           </div>
                           <div className="kpi-sub">realizado</div>
@@ -370,7 +377,7 @@ export default function CustosDiretos() {
                                 <>
                                   <td style={{ width: 96, textAlign: 'right',
                                                fontFamily: 'var(--mono)', color: REAL }}>
-                                    {i._real > 0 ? fmtMoedaK(i._real)
+                                    {i._real > 0 ? <span style={PILL}>{fmtMoedaK(i._real)}</span>
                                       : <span style={{ color: 'var(--text3)' }}>—</span>}
                                   </td>
                                   <td style={{ width: 60, textAlign: 'right', fontSize: 11,
