@@ -21,7 +21,9 @@
 --   3) Linha nova 17.1.14 "Combustível obra" (na planilha: "Gasolina Caro Vandinho"), Canteiro, 24 × R$ 1.000.
 --   4) Códigos repetidos no mesmo pavimento:
 --        4.1.3 Encunhamento (47,75 m, R$ 666,64) está na subseção 4.2 SUBSOLO da planilha final: é erro de
---          numeração → passa a ser 4.2.3, pavimento Subsolo (decisão do Rafael, 08/10/2026)
+--          numeração → passa a ser 4.2.3, pavimento Subsolo (decisão do Rafael, 08/10/2026), semanas S24–S27:
+--          começa logo depois da alvenaria do Subsolo (4.2.1/4.2.2 terminam na S23), com a mesma duração da
+--          4.1.3 do Pilotis (S29–S32, 4 semanas)
 --        6.1.1 "MO Hidráulica - Ademir (prumadas e reservatório)" nos 4 pavimentos  → 6.1.1.1
 --      Nenhuma medição nem custo gravado usa 4.1.3 (de nenhum pavimento), 4.2.3 ou 6.1.1 (conferido em 08/10/2026).
 -- Não muda: custos_indiretos_planejados (grupo 19 igual à planilha: 2.446.376,88), horas, semanas,
@@ -76,11 +78,16 @@ values ('sirius60', '17.1.14', 'Combustível obra', 24, 'mês', 1000.00, 24000.0
         'Locação de Equipamentos', 0, true);
 
 -- 4) Linhas repetidas no mesmo código + pavimento
-update public.orcamento_planejado set codigo_eap = '4.2.3', pavimento = 'Subsolo'
- where id = 752 and obra_id = 'sirius60' and codigo_eap = '4.1.3' and pavimento = 'Pilotis' and preco_total = 666.64;
--- Semanas: a linha 752 está em S29–32 (as do Pilotis); a alvenaria do Subsolo (4.2.1, 4.2.2) está em S21–23.
--- As semanas foram mantidas. Para seguir o Subsolo, tire o comentário da linha abaixo antes de rodar:
--- update public.orcamento_planejado set semana_inicio = 21, semana_fim = 23 where id = 752 and codigo_eap = '4.2.3';
+-- Semanas: início = fim da alvenaria do Subsolo + 1; duração = a da 4.1.3 do Pilotis (id 749), calculadas na hora
+update public.orcamento_planejado as o
+   set codigo_eap = '4.2.3', pavimento = 'Subsolo',
+       semana_inicio = s.fim_alv + 1,
+       semana_fim    = s.fim_alv + 1 + (s.pil_fim - s.pil_ini)
+  from (select (select max(semana_fim) from public.orcamento_planejado
+                 where obra_id = 'sirius60' and pavimento = 'Subsolo' and codigo_eap in ('4.2.1', '4.2.2')) as fim_alv,
+               (select semana_inicio from public.orcamento_planejado where id = 749 and codigo_eap = '4.1.3') as pil_ini,
+               (select semana_fim    from public.orcamento_planejado where id = 749 and codigo_eap = '4.1.3') as pil_fim) as s
+ where o.id = 752 and o.obra_id = 'sirius60' and o.codigo_eap = '4.1.3' and o.pavimento = 'Pilotis' and o.preco_total = 666.64;
 update public.orcamento_planejado
    set codigo_eap = '6.1.1.1', descricao = 'MO Hidráulica - Ademir (prumadas e reservatório)'
  where id in (988, 989, 990, 991) and obra_id = 'sirius60' and codigo_eap = '6.1.1';
@@ -94,9 +101,10 @@ begin
   if n <> 334 or round(total, 2) <> 7551387.47 then
     raise exception 'resultado inesperado (% linhas, total %): nada foi gravado', n, total;
   end if;
-  if not exists (select 1 from public.orcamento_planejado where id = 752 and codigo_eap = '4.2.3' and pavimento = 'Subsolo')
+  if not exists (select 1 from public.orcamento_planejado where id = 752 and codigo_eap = '4.2.3' and pavimento = 'Subsolo'
+                   and semana_inicio = 24 and semana_fim = 27)
      or (select count(*) from public.orcamento_planejado where obra_id = 'sirius60' and codigo_eap = '6.1.1.1') <> 4 then
-    raise exception 'troca de códigos (4.2.3 / 6.1.1.1) não aconteceu como esperado: nada foi gravado';
+    raise exception 'troca de códigos (4.2.3 S24–S27 / 6.1.1.1) não aconteceu como esperado: nada foi gravado';
   end if;
 end $$;
 
@@ -106,7 +114,7 @@ commit;
 select count(*) as linhas, sum(preco_total) as direto from public.orcamento_planejado where obra_id = 'sirius60';
 
 -- Conferência 2: linhas alteradas
-select id, codigo_eap, pavimento, descricao, preco_unitario, preco_total
+select id, codigo_eap, pavimento, descricao, preco_unitario, preco_total, semana_inicio, semana_fim
   from public.orcamento_planejado
  where obra_id = 'sirius60' and (id in (672, 685, 697, 709, 721, 731, 738, 745, 752, 988, 989, 990, 991) or codigo_eap = '17.1.14')
  order by codigo_eap, pavimento;

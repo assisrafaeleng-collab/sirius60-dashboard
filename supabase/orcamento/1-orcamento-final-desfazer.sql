@@ -2,7 +2,7 @@
 -- Sirius 60 — DESFAZER o orçamento final (1-orcamento-final.sql)
 -- Volta orcamento_planejado ao backup de 08/10/2026, linha a linha pelo id:
 --   - preço, código, descrição, pavimento e semanas das linhas alteradas voltam ao que eram
---     (ex.: 4.2.3 Subsolo volta a 4.1.3 Pilotis; 6.1.1.1 volta a 6.1.1);
+--     (ex.: 4.2.3 Subsolo S24–S27 volta a 4.1.3 Pilotis S29–S32; 6.1.1.1 volta a 6.1.1);
 --   - a linha 17.1.14 (que não está no backup) sai.
 -- Não toca em medições nem custos. custos_indiretos_planejados não foi alterado pelo passo 1.
 -- As tabelas de backup ficam (para apagar depois, ver o fim do arquivo).
