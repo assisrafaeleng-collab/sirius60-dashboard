@@ -98,14 +98,39 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
     (concreto usinado, apenas material).
   - Diária mista "Concretagem blocos e limpeza dos blocos" (BM3 item 3.5, R$ 800) → 50% 2.1.8 / 50% 2.1.2.
 
-## Contas a pagar (decisões do Rafael, 08/10/2026)
-- Fonte: os mesmos relatórios completos de automacao\entrada\ (Fonseca e Dinâmica). Dinâmica: não há a pagar.
-- Fonseca: linha SEM valor na coluna "Valor Baixado" = em aberto (candidata a contas a pagar).
+## Contas a pagar (decisões do Rafael, 08/10/2026; ATUALIZADO no pedido 8)
+- Fonte: os mesmos relatórios completos de automacao\entrada\ (Fonseca e Dinâmica). As DUAS podem ter título
+  a pagar (ex.: Betonita 616/01 na Dinâmica). Caixa Cartões continua NAO_CUSTO.
+- A pagar = NÃO estava pago no fechamento: Data de Baixa vazia OU Data de Baixa depois do último dia do mês
+  do fechamento (ex.: NF do BM4, paga em 02/10, estava a pagar no fechamento 2026-09). Não usar a coluna
+  "Valor Baixado" vazia como critério.
 - Considerar só vencimentos de 2026-09-01 em diante, EXCETO parcelas pendentes de compras antigas pagas
   parceladamente (ex.: NF /01 e /02 pagas e /03 em aberto) — essas entram qualquer que seja a data.
 - Antes de entrar, descartar duplicidade: título já pago em outra linha/fonte, parcela já baixada, previsão de OC
-  já faturada, OCs 1787 e 1849, BM já pago, vales da Sericita (nunca entram).
-- Fechamento de referência da primeira carga: 2026-09.
+  já faturada, OCs 1787 e 1849, BM já pago, vales da Sericita (nunca entram), decisões NAO_CUSTO.
+- Recorrente (sai do card e do IPC, fica marcado): grupos 17 e 18, 1.1.6 e indiretos com recorrente = true.
+  Custo direto a pagar (card e IPC) = classe direto e não recorrente.
+- GRAVADO (08/10/2026): fechamento 2026-09, carga 56f2a06f-3c10-4ca5-8637-bd7837d8493e, 3 títulos / 9 linhas,
+  R$ 49.158,70 (BM4 19.336,12 + Betonita 616 29.620,00 + CEMIG 202,58 recorrente);
+  custo direto a pagar R$ 48.956,12. Tabela contas_a_pagar (supabase/contas/1-contas-a-pagar.sql).
+  Gerar: automacao/contas_a_pagar.py; gravar: importar.js --contas (backup da carga anterior para desfazer).
+
+## Orçamento oficial (decisões do Rafael, 08/10/2026)
+- Arquivo oficial: automacao/orcamentos/Orcamento_Rua Sirius 60 - Final - 03-08-26.xlsx, aba "Orçamento"
+  (mesma numeração do banco; uma linha por código, sem pavimento, sem horas e sem semanas).
+  Direto 7.527.387,47 sem a 17.1.14 (o subtotal do grupo 17 na planilha não soma a 17.1.14) e 7.551.387,47
+  com ela (grupo 17 = 782.444,00); indireto 2.446.376,88.
+- Diferença para o banco: +128.752,27, só preço da forma de MO (R$ 60 → R$ 75/m²) em 2.1.6, 3.1.5, 3.2.5,
+  3.3.5, 3.4.6, 3.5.5, 3.6.5 e 3.7.5. Mais a linha nova 17.1.14 "Combustível obra" R$ 24.000,00 (Canteiro).
+- Código repetido no mesmo pavimento ganha código próprio: 2ª linha 4.1.3 (Encunhamento 666,64) → 4.1.3.1;
+  6.1.1 "prumadas e reservatório" (4 pavimentos) → 6.1.1.1. Pavimento da 4.1.3.1 (Pilotis × Subsolo): a decidir.
+- Horas e semanas: as do banco; linha nova sem horas. 3.0.1 e 4.0.9 (R$ 0 com horas) ficam no banco.
+- Aplicação: supabase/orcamento/1-orcamento-final.sql (backup com data + desfazer). SÓ DEPOIS de promovido o
+  código que lê o orçamento do banco.
+- Fonte única = banco (orcamento_planejado + custos_indiretos_planejados). As telas leem /api/orcamento
+  (servidor, chave secreta), no mesmo formato do antigo public/dados.json. O public/dados.json não é mais lido
+  pelo site; fica até o Rafael autorizar a remoção. Totais de custo NÃO ficam fixos em lib/constants.js.
+- Lançamentos manuais e cargas continuam usando os códigos do banco; nenhuma tela deve voltar a ler dados.json.
 
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
 - Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 18.
