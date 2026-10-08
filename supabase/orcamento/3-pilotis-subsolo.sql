@@ -7,19 +7,17 @@
 --   4.1.1 Pilotis (id 747) ↔ 4.2.1 Subsolo (id 750)  alvenaria: Pilotis fica com 143,26 m²; Subsolo com 92,41 m²
 --   4.1.2 Pilotis (id 748) ↔ 4.2.2 Subsolo (id 751)  verga: Pilotis 5,25 m³; Subsolo 3,024 m³
 --   4.1.3 Pilotis (id 749) ↔ 4.2.3 Subsolo (id 752)  encunhamento: Pilotis 47,75 m (R$ 666,64); Subsolo 30,80 m (R$ 430,02)
--- Trocam: quantidade, preço unitário, preço total e semanas; e as HORAS se trocar_horas = true (abaixo).
+-- Trocam: quantidade, preço unitário, preço total e semanas. As HORAS NÃO trocam (decisão do Rafael, 08/10/2026).
 -- O total do orçamento não muda (334 linhas, 7.551.387,47). Nenhum custo, medição ou contas a pagar usa 4.1.x/4.2.x
 -- (conferido em 08/10/2026).
 --
--- ATENÇÃO — HORAS: as horas de hoje no banco JÁ batem com o cronograma por pavimento (Pilotis 4.1.x = 130,9 h
--- + 8,1 h do encunhamento = 139,0 h = "Alvenaria PILOTIS" do cronograma; Subsolo 4.2.x = 89,6 h = "Alvenaria
--- SUBSOLO"). Trocando as horas junto, a diferença com o cronograma vai a ±41,3 h por pavimento; sem trocar,
--- fica ±8,1 h (só o encunhamento de 47,75 m). Padrão = trocar (pedido 11). Para NÃO trocar, mude a linha abaixo para false.
+-- HORAS (decisão do Rafael, 08/10/2026: NÃO trocar): as horas de hoje no banco JÁ batem com o cronograma por
+-- pavimento (Pilotis 4.1.x = 130,9 h + 8,1 h do encunhamento = 139,0 h = "Alvenaria PILOTIS" do cronograma;
+-- Subsolo 4.2.x = 89,6 h = "Alvenaria SUBSOLO"). Por isso este arquivo não altera a coluna hh.
 -- (As semanas trocam aqui, mas o 2-semanas-orcamento.sql regrava as semanas pela ligação com o cronograma.)
 -- =====================================================================
 do $$
 declare
-  trocar_horas boolean := true;   -- false = as horas ficam onde estão (batendo com o cronograma por pavimento)
   n int; total numeric;
 begin
   -- 0) Trava: as 6 linhas exatamente como em 08/10/2026
@@ -46,14 +44,13 @@ begin
   alter table public.orcamento_pilotis_subsolo_bkp_20261008 enable row level security;
   revoke all on public.orcamento_pilotis_subsolo_bkp_20261008 from anon, authenticated;
 
-  -- 2) Troca aos pares, a partir do backup (a linha recebe os valores da parceira)
+  -- 2) Troca aos pares, a partir do backup (a linha recebe os valores da parceira; hh fica como está)
   update public.orcamento_planejado as o
      set quantidade     = p.quantidade,
          preco_unitario = p.preco_unitario,
          preco_total    = p.preco_total,
          semana_inicio  = p.semana_inicio,
-         semana_fim     = p.semana_fim,
-         hh             = case when trocar_horas then p.hh else o.hh end
+         semana_fim     = p.semana_fim
     from (values (747, 750), (750, 747), (748, 751), (751, 748), (749, 752), (752, 749)) as par(id, parceira)
     join public.orcamento_pilotis_subsolo_bkp_20261008 as p on p.id = par.parceira
    where o.id = par.id and o.obra_id = 'sirius60';
@@ -72,7 +69,12 @@ begin
      or (id = 752 and pavimento = 'Subsolo' and quantidade = 30.8   and preco_total = 430.02))) <> 6 then
     raise exception 'a troca não ficou como esperado: nada foi gravado';
   end if;
-  raise notice 'troca feita (horas trocadas: %)', trocar_horas;
+  if exists (select 1 from public.orcamento_planejado as o
+               join public.orcamento_pilotis_subsolo_bkp_20261008 as b on b.id = o.id
+              where o.hh is distinct from b.hh) then
+    raise exception 'as horas mudaram (não deviam): nada foi gravado';
+  end if;
+  raise notice 'troca feita (horas mantidas)';
 end $$;
 
 -- Conferência: Pilotis 4.1.x = 143,26 m² / 5,25 m³ / 47,75 m; Subsolo 4.2.x = 92,41 m² / 3,02 m³ / 30,80 m
