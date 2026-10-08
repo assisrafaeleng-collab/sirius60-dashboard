@@ -7,6 +7,10 @@
 //   node ferramentas/fechamento/importar.js --competencia 2026-07 --confirmar  (grava)
 //   node ferramentas/fechamento/importar.js --desfazer <id da importação> [--confirmar]
 //   --saida saida_v2  lê automacao/saida_v2/AAAA-MM (classificador --completo); padrão: automacao/saida
+//   node ferramentas/fechamento/importar.js --contas --fechamento 2026-09 --saida saida_v2 [--confirmar]
+//      contas a pagar (automacao/saida_v2/contas_2026-09.csv, do contas_a_pagar.py) na tabela contas_a_pagar;
+//      substitui a carga anterior do mesmo fechamento. Desfazer: --contas --fechamento 2026-09 --desfazer <carga>
+//      [--confirmar]
 //
 // Regras (CLAUDE.md e pedido 5A, 08/10/2026):
 //   SAI    só linhas da obra nessa competência com importacao_id preenchido OU
@@ -45,6 +49,8 @@ const arg = (n) => {
   return i >= 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : null
 }
 const CONFIRMAR = args.includes('--confirmar')
+const CONTAS = args.includes('--contas')
+const FECHAMENTO = arg('--fechamento')
 const COMPETENCIA = arg('--competencia')
 const DESFAZER = arg('--desfazer')
 // pasta da saída do classificador dentro de automacao/ (saida_v2 = relatórios completos, classificador --completo)
@@ -124,16 +130,141 @@ async function estrutura(db) {
 }
 
 async function main() {
-  if (!COMPETENCIA && !DESFAZER) {
-    console.error('Uso: --competencia AAAA-MM [--confirmar]  |  --desfazer ID [--confirmar]')
+  if (!COMPETENCIA && !DESFAZER && !CONTAS) {
+    console.error('Uso: --competencia AAAA-MM [--confirmar]  |  --desfazer ID [--confirmar]  |  --contas --fechamento AAAA-MM [--confirmar | --desfazer CARGA]')
     process.exit(1)
   }
   const env = lerEnv()
   if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.SUPABASE_SECRET_KEY)
     throw new Error('Faltam NEXT_PUBLIC_SUPABASE_URL e/ou SUPABASE_SECRET_KEY no .env.local')
   const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } })
+  if (CONTAS) return DESFAZER ? desfazerContas(db) : contas(db)
   if (DESFAZER) return desfazer(db)
   return importar(db)
+}
+
+// ── Contas a pagar (automacao/<saida>/contas_AAAA-MM.csv, gerado pelo contas_a_pagar.py) ──────────
+// Card separado do custo: nada daqui vai para custos_lancamentos. Substitui a carga anterior do MESMO
+// fechamento (insere a nova e só depois apaga a antiga). Antes de apagar, guarda cópia da carga antiga em
+// automacao/<saida>/contas_AAAA-MM_backup_<carga nova>.json, que é o que o --desfazer devolve.
+const TABELA_CONTAS = 'contas_a_pagar'
+
+async function existeTabela(db, nome) {
+  const r = await db.from(nome).select('*').limit(1)
+  if (!r.error) return true
+  if (/does not exist|could not find the table|schema cache/i.test(r.error.message)) return false
+  throw new Error(`${nome}: ${r.error.message}`)
+}
+
+async function contas(db) {
+  if (!/^\d{4}-\d{2}$/.test(FECHAMENTO || '')) throw new Error('--contas precisa de --fechamento AAAA-MM')
+  const arq = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}.csv`)
+  const arqR = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}_resumo.json`)
+  if (!fs.existsSync(arq)) throw new Error(`${path.relative(RAIZ, arq)} não existe: rode py contas_a_pagar.py --fechamento ${FECHAMENTO}`)
+  const brutas = lerCsv(arq)
+  const travas = []
+  if (fs.existsSync(arqR)) {
+    const r = JSON.parse(fs.readFileSync(arqR, 'utf8'))
+    if (Math.abs(r.total - soma(brutas)) >= 0.005 || r.linhas !== brutas.length)
+      travas.push(`contas_${FECHAMENTO}.csv (${brutas.length} · ${fmt(soma(brutas))}) não fecha com o resumo (${r.linhas} · ${fmt(r.total)})`)
+  } else travas.push('resumo do contas_a_pagar.py não existe: rode de novo')
+
+  // Indireto recorrente: pela marcação do banco (custos_indiretos_planejados.recorrente)
+  const ind = await todos(() => db.from('custos_indiretos_planejados').select('codigo_eap, recorrente').eq('obra_id', OBRA))
+  const indRec = {}
+  ind.forEach((i) => i.codigo_eap && (indRec[i.codigo_eap] = indRec[i.codigo_eap] || !!i.recorrente))
+  const linhas = brutas.map((b) => {
+    const eap = txt(b.eap)
+    let rec = txt(b.recorrente) === 'sim'
+    if (eap.startsWith('19.')) rec = !!indRec[eap]
+    return {
+      obra_id: OBRA,
+      competencia_fechamento: FECHAMENTO,
+      competencia_vencimento: txt(b.competencia_vencimento),
+      fonte: FONTES[txt(b.fonte).toLowerCase()] || null,
+      cnpj: txt(b.cnpj) || null,
+      fornecedor: txt(b.fornecedor),
+      num_documento: txt(b.documento),
+      parcela: txt(b.parcela) || null,
+      seq: parseInt(b.seq, 10) || 1,
+      historico: txt(b.historico) || null,
+      item: txt(b.item) || null,
+      oc: txt(b.oc) || null,
+      data_emissao: txt(b.emissao) || null,
+      data_vencimento: txt(b.vencimento) || null,
+      valor_titulo: r2(Number(b.valor_titulo)),
+      valor: r2(Number(b.valor)),
+      codigo_eap: eap || null,
+      pavimento: txt(b.pavimento) || null,
+      classe: txt(b.classe),
+      natureza: txt(b.natureza),
+      recorrente: rec,
+      vinculo_oc: txt(b.vinculo_oc) || null,
+      regra: txt(b.regra) || null,
+      alertas: txt(b.alertas) ? txt(b.alertas).split(' | ') : [],
+    }
+  })
+  linhas.forEach((l, i) => {
+    if (!l.fonte) travas.push(`linha ${i + 2}: fonte desconhecida`)
+    if (l.classe === 'pendente') travas.push(`linha ${i + 2}: ${l.num_documento} sem EAP (pendência)`)
+    if (!/^\d{4}-\d{2}$/.test(l.competencia_vencimento)) travas.push(`linha ${i + 2}: sem vencimento`)
+  })
+
+  const s = (f) => fmt(soma(linhas.filter(f)))
+  const nTit = (f) => new Set(linhas.filter(f).map((l) => `${l.cnpj}|${l.num_documento}`)).size
+  console.log(`\nContas a pagar · fechamento ${FECHAMENTO} · ${path.relative(RAIZ, arq)}`)
+  console.log(`  ${nTit(() => true)} título(s) · ${linhas.length} linha(s) · ${fmt(soma(linhas))}`)
+  for (const cl of ['direto', 'indireto', 'pendente'])
+    for (const rec of [false, true]) {
+      const f = (l) => l.classe === cl && l.recorrente === rec
+      if (linhas.some(f)) console.log(`    ${cl.padEnd(9)} ${rec ? 'recorrente    ' : 'não recorrente'} ${String(nTit(f)).padStart(3)} título(s) · ${s(f)}`)
+    }
+  console.log(`  CUSTO DIRETO A PAGAR (direto, não recorrente; card e IPC): ${s((l) => l.classe === 'direto' && !l.recorrente)}`)
+  const comAlerta = linhas.filter((l) => l.seq === 1 && l.alertas.length)
+  comAlerta.forEach((l) => console.log(`  ! ${l.num_documento} · ${l.fornecedor} · ${l.alertas.join(' | ')}`))
+  travas.forEach((t) => console.log(`  ✗ ${t}`))
+
+  const existe = await existeTabela(db, TABELA_CONTAS)
+  let antigas = []
+  if (existe) {
+    antigas = await todos(() => db.from(TABELA_CONTAS).select('*').eq('obra_id', OBRA).eq('competencia_fechamento', FECHAMENTO))
+    console.log(`  tabela ${TABELA_CONTAS}: ${antigas.length} linha(s) do fechamento ${FECHAMENTO} · ${fmt(soma(antigas))} → serão SUBSTITUÍDAS`)
+  } else console.log(`  ! tabela ${TABELA_CONTAS} ainda não existe: rode supabase/contas/1-contas-a-pagar.sql antes do --confirmar`)
+
+  if (!CONFIRMAR) return console.log(`\n  PRÉVIA: nada foi gravado.${!travas.length && existe ? ' Para gravar, rode de novo com --confirmar' : ' Resolva os itens acima antes de gravar.'}\n`)
+  if (travas.length) throw new Error('há itens marcados com ✗: nada foi gravado')
+  if (!existe) throw new Error(`a tabela ${TABELA_CONTAS} não existe: nada foi gravado`)
+
+  const carga_id = require('crypto').randomUUID()
+  const backup = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}_backup_${carga_id}.json`)
+  fs.writeFileSync(backup, JSON.stringify({ fechamento: FECHAMENTO, carga_id, substituidas: antigas }))
+  const r = await db.from(TABELA_CONTAS).insert(linhas.map((l) => ({ ...l, carga_id })))
+  if (r.error) {
+    await db.from(TABELA_CONTAS).delete().eq('carga_id', carga_id)
+    throw new Error(`inserção falhou (a carga anterior continua): ${r.error.message}`)
+  }
+  const d = await db.from(TABELA_CONTAS).delete().eq('obra_id', OBRA).eq('competencia_fechamento', FECHAMENTO).neq('carga_id', carga_id)
+  if (d.error) throw new Error(`gravou, mas apagar a carga anterior falhou: ${d.error.message}. Desfaça com --contas --desfazer ${carga_id}`)
+  console.log(`\n  ✓ contas a pagar ${FECHAMENTO}: ${linhas.length} linha(s), carga ${carga_id}; ${antigas.length} antiga(s) substituída(s).`)
+  console.log(`  backup da carga anterior: ${path.relative(RAIZ, backup)}  (desfazer: --contas --fechamento ${FECHAMENTO} --desfazer ${carga_id})\n`)
+}
+
+async function desfazerContas(db) {
+  if (!/^\d{4}-\d{2}$/.test(FECHAMENTO || '')) throw new Error('--contas --desfazer precisa de --fechamento AAAA-MM')
+  const backup = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}_backup_${DESFAZER}.json`)
+  if (!fs.existsSync(backup)) throw new Error(`backup da carga ${DESFAZER} não encontrado (${path.relative(RAIZ, backup)})`)
+  const b = JSON.parse(fs.readFileSync(backup, 'utf8'))
+  const atuais = await todos(() => db.from(TABELA_CONTAS).select('id, valor').eq('carga_id', DESFAZER))
+  console.log(`\nDesfazer contas a pagar ${FECHAMENTO} · carga ${DESFAZER}`)
+  console.log(`  sai: ${atuais.length} linha(s) · ${fmt(soma(atuais))} | volta: ${b.substituidas.length} linha(s) · ${fmt(soma(b.substituidas))}`)
+  if (!CONFIRMAR) return console.log(`\n  PRÉVIA: nada foi alterado. Para desfazer, rode de novo com --confirmar\n`)
+  if (b.substituidas.length) {
+    const x = await db.from(TABELA_CONTAS).upsert(b.substituidas)
+    if (x.error) throw new Error(`devolver a carga anterior falhou (a atual continua): ${x.error.message}`)
+  }
+  const d = await db.from(TABELA_CONTAS).delete().eq('carga_id', DESFAZER)
+  if (d.error) throw new Error(`a anterior voltou, mas apagar a carga ${DESFAZER} falhou: ${d.error.message}. Rode de novo.`)
+  console.log(`\n  ✓ carga ${DESFAZER} desfeita: ${atuais.length} saíram, ${b.substituidas.length} voltaram.\n`)
 }
 
 async function orcamento(db) {

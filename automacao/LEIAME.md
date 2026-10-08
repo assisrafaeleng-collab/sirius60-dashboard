@@ -9,6 +9,7 @@ Python pelo comando `py`. Nada aqui grava no banco: a saída é prévia em CSV.
     gerar_regras.py       cria regras.csv e regras_parcelas.csv a partir do consolidado (aba Lançamentos)
     gerar_orcamento.py    cria orcamento.csv a partir de ../public/dados.json + ajustes_orcamento.csv
     comparar.py           compara a saída com o consolidado, por mês e EAP e título a título
+    contas_a_pagar.py     contas a pagar do fechamento (relatórios completos) → saida_v2/contas_AAAA-MM.csv
     util.py               normalização de nomes, CNPJ e similaridade de itens
 
     entrada/fonseca/      relatórios TOTVS da Fonseca & Lage (o mais recente, com VALOR PAGO, é o usado)
@@ -104,6 +105,23 @@ Opções do classificador: --fonseca, --dinamica, --rateio (arquivo), --oc (past
 - vigente_desde = AAAA-MM-DD → a regra só vale a partir dessa competência
 - decisoes_pontuais.csv com eap = NAO_CUSTO → o título sai do custo; parcela seguinte de uma NF herda a
   decisão da primeira (NAO_CUSTO não é herdado)
+
+## Contas a pagar (CLAUDE.md, "Contas a pagar", 08/10/2026)
+    py contas_a_pagar.py --fechamento 2026-09          # saida_v2/contas_2026-09.csv (+ _fora.csv e _resumo.json)
+    node ferramentas/fechamento/importar.js --contas --fechamento 2026-09 --saida saida_v2              # prévia
+    node ferramentas/fechamento/importar.js --contas --fechamento 2026-09 --saida saida_v2 --confirmar  # grava
+    node ferramentas/fechamento/importar.js --contas --fechamento 2026-09 --saida saida_v2 --desfazer <carga> [--confirmar]
+Pré-requisito para gravar: ../supabase/contas/1-contas-a-pagar.sql. NÃO é custo: nada vai para custos_lancamentos.
+- Em aberto no fechamento: Fonseca com Valor Baixado vazio/zero, ou baixa depois do último dia do mês do
+  fechamento. Dinâmica: não há a pagar (o que aparecer em aberto é listado em _fora.csv para conferência).
+- Filtros, na ordem: (a) vales da Sericita; (b) OCs 1787 e 1849; (c) duplicidade (documento já pago em
+  qualquer fonte ou no custo gravado, valor igual com data a até 5 dias, previsão de OC já faturada, BM já
+  pago); (d) vencimento antes do mês do fechamento, exceto parcela pendente de NF com outra parcela paga.
+- EAP pelas mesmas regras e decisões do classificador. Recorrente (sai do card e do IPC, fica marcado):
+  grupos 17 e 18 e 1.1.6; indireto recorrente pela coluna recorrente de custos_indiretos_planejados (marcado
+  pelo importar.js). Custo direto a pagar = classe direto e não recorrente.
+- --confirmar insere a carga nova e só depois apaga a anterior do mesmo fechamento; a cópia da anterior fica em
+  saida_v2/contas_AAAA-MM_backup_<carga>.json (é o que o --desfazer devolve).
 
 ## Gravação no banco (../ferramentas/fechamento/importar.js)
 Pré-requisito: ../supabase/custos/1-importacoes.sql e 2-colunas-custos.sql rodados (nessa ordem).

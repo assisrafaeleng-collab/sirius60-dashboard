@@ -98,6 +98,15 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
     (concreto usinado, apenas material).
   - Diária mista "Concretagem blocos e limpeza dos blocos" (BM3 item 3.5, R$ 800) → 50% 2.1.8 / 50% 2.1.2.
 
+## Contas a pagar (decisões do Rafael, 08/10/2026)
+- Fonte: os mesmos relatórios completos de automacao\entrada\ (Fonseca e Dinâmica). Dinâmica: não há a pagar.
+- Fonseca: linha SEM valor na coluna "Valor Baixado" = em aberto (candidata a contas a pagar).
+- Considerar só vencimentos de 2026-09-01 em diante, EXCETO parcelas pendentes de compras antigas pagas
+  parceladamente (ex.: NF /01 e /02 pagas e /03 em aberto) — essas entram qualquer que seja a data.
+- Antes de entrar, descartar duplicidade: título já pago em outra linha/fonte, parcela já baixada, previsão de OC
+  já faturada, OCs 1787 e 1849, BM já pago, vales da Sericita (nunca entram).
+- Fechamento de referência da primeira carga: 2026-09.
+
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
 - Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 18.
 - Avanço físico = horas executadas ÷ horas orçadas (nunca ponderado por valor).
