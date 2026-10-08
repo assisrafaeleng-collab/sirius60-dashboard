@@ -55,13 +55,33 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   normalizar espaços ao comparar.
 - Prova de pagamento (relatório sem "Valor Pago"): Data de Baixa preenchida e Valor Baixado > 0.
 - Não existe Taxa ADM no Sirius (a regra M+1 do Flats NÃO se aplica). O salário do engenheiro entra em 19.1.23 (indireto).
-- Histórico manual protegido: terreno e custos anteriores que não aparecem nos relatórios TOTVS
-  (lancado_por = 'Rafael'). Nenhuma carga automática apaga ou substitui esses lançamentos.
-- Giuliano = SERICITA CONSTRUÇÕES LTDA (mesmo empreiteiro). BMs mensais com vales/adiantamentos semanais
-  (R$ 2.500) descontados; a NF sai pelo valor LÍQUIDO (bruto medido − vales).
-- Regra proposta (a confirmar na conciliação): vale = custo no pagamento; NF líquida = custo no pagamento;
-  vale + NF = bruto medido. NUNCA lançar o bruto do BM além dos vales (isso conta duas vezes).
-  Até a confirmação, títulos da Sericita viram pendência.
+- Histórico manual protegido: SÓ os 3 lançamentos com lancado_por = 'Rafael' (terreno e custos anteriores que
+  não aparecem nos relatórios TOTVS). Nenhuma carga automática apaga ou substitui esses lançamentos.
+- Os 20 lançamentos "carga planilha" (seed 05, vindos do TOTVS da Fonseca) PODEM ser substituídos mês a mês pela
+  carga do classificador (com backup e desfazer). Carga substitui o mês inteiro; nunca soma por cima.
+- Sericita (Giuliano), CNPJ 23.668.984/0001-89 (no TOTVS aparece como "GIULIANO DA SILVA OLIVEIRA"/"SERECITA"),
+  regra CONFIRMADA na conciliação de 07/10/2026 (diagnostico/conciliacao_sericita.md):
+  - Vale de R$ 2.500 toda sexta; no fechamento do mês os vales são abatidos no BM; a NF sai pelo LÍQUIDO.
+  - Fonte única: Fonseca. Vale = custo no pagamento; NF líquida = custo no pagamento; vale + NF = bruto do BM.
+  - Cada pagamento (vale ou NF) é rateado pela composição do BM a que pertence. EAPs (Rafael, 07/10):
+    escavação → 2.1.2; armação → 2.1.7; forma → 2.1.6.
+  - Diárias NÃO têm linha própria: vão para o serviço em execução no período, pela descrição da diária no BM
+    (terra, escavação, limpeza de blocos, pedra → 2.1.2; concretagem → linha de concretagem da fundação;
+    aço → 2.1.7). Na dúvida, pendência.
+  - NUNCA lançar o bruto do BM além dos vales (conta duas vezes).
+  - NAO_CUSTO: título "Adto Forn" do BM1 (R$ 4.639,17) na Dinâmica (já pago pela Fonseca) e a 2ª linha do
+    vale de 26/06 na Fonseca (repetição; pago uma vez só).
+  - Previsões das OCs 1787 e 1849 não entram no contas a pagar (comprador vai cancelar/baixar no TOTVS).
+- Outras decisões (Rafael, 07/10/2026):
+  - ISS da Prefeitura → 19.1.22.
+  - Impressões/cópias (Copiadora Realce) → linha de projeto estrutural do grupo 19.
+  - Caixa Cartões → NAO_CUSTO.
+  - Combustível da obra (Auto Posto; gasolina do carro de apoio) → linha NOVA 17.1.4 "Combustível obra",
+    verba R$ 1.000,00/mês × 24 meses = R$ 24.000,00 (Rafael, 08/10). Entra no orçamento na fase do orçamento;
+    até lá fica em automacao/ajustes_orcamento.csv.
+  - Areial Mariana (pedra de mão usada na concretagem dos fustes, no lugar de concreto) → mesma linha do
+    material de concreto dos tubulões/fundação.
+  - Diária mista "Concretagem blocos e limpeza dos blocos" (BM3 item 3.5, R$ 800) → 50% 2.1.8 / 50% 2.1.2.
 
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
 - Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 18.

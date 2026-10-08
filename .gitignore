@@ -23,6 +23,8 @@ automacao/entrada/
 automacao/processados/
 automacao/erros/
 automacao/medicoes/
+# saidas do classificador (previas por competencia)
+automacao/saida/
 # projetos do cliente: nao vao para o GitHub
 automacao/projetos/
 # previas e conferencias do fechamento (fornecedores e valores)
