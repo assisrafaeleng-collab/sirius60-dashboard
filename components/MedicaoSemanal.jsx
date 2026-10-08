@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { fetchComSenha } from '../lib/fetch-com-senha'
 import { OBRA, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
          inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo } from '../lib/constants'
 
@@ -9,7 +10,6 @@ export default function MedicaoSemanal({ semana, sessao }) {
   const [itens, setItens] = useState(null)
   const [med, setMed] = useState(null)
   const quem = sessao?.quem || ''
-  const senha = sessao?.senha || ''
   const [toast, setToast] = useState(null)
   const [aberto, setAberto] = useState(null)     // chave do serviço expandido
   const [filtro, setFiltro] = useState('semana') // semana | andamento | todos
@@ -26,7 +26,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
   }, [])
 
   function carregar() {
-    fetch(`/api/medicao?ate=${OBRA.prazo_semanas}`).then(r => r.json())
+    fetchComSenha(`/api/medicao?ate=${OBRA.prazo_semanas}`).then(r => r.json())
       .then(j => j.error ? setToast({ tipo: 'err', txt: j.message || j.error }) : setMed(j))
       .catch(e => setToast({ tipo: 'err', txt: e.message }))
   }
@@ -86,9 +86,9 @@ export default function MedicaoSemanal({ semana, sessao }) {
   async function salvar(i) {
     setToast(null)
     try {
-      const r = await fetch('/api/medicao', {
+      const r = await fetchComSenha('/api/medicao', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, senha, medido_por: quem,
+        body: JSON.stringify({ ...form, medido_por: quem,
                                codigo_eap: i.i, pavimento: i.p }),
       })
       const j = await r.json()
@@ -102,8 +102,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
   async function excluir(id) {
     if (!confirm('Excluir este lançamento?')) return
     try {
-      const r = await fetch(`/api/medicao?id=${id}&senha=${encodeURIComponent(senha)}`,
-        { method: 'DELETE' })
+      const r = await fetchComSenha(`/api/medicao?id=${id}`, { method: 'DELETE' })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao excluir')
       setToast({ tipo: 'ok', txt: 'Lançamento excluído.' })

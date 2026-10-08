@@ -6,3 +6,41 @@ out
 .vercel
 .DS_Store
 *.log
+
+# diagnosticos, pedidos, backups e planilhas locais (nao versionar)
+diagnostico/
+pedidos.txt
+backup*/
+*.csv
+*.xlsx
+*.xls
+*.pdf
+
+# automacao: dados locais e saidas (nao versionar) — mesmo bloco do Flats
+automacao/oc/
+automacao/fechamentos/
+automacao/entrada/
+automacao/processados/
+automacao/erros/
+automacao/medicoes/
+# projetos do cliente: nao vao para o GitHub
+automacao/projetos/
+# previas e conferencias do fechamento (fornecedores e valores)
+automacao/setembro_2026/
+automacao/.env
+automacao/lancamentos.csv
+automacao/pendencias.csv
+automacao/nao_custo.csv
+automacao/contas_a_pagar.csv
+automacao/pendencias_contas.csv
+# regras com CPF de pessoas e valores pessoais: so no computador local
+automacao/regras.csv
+automacao/regras_manuais.csv
+automacao/regras_parcelas.csv
+automacao/decisoes_pontuais.csv
+automacao/fornecedores_recorrentes.csv
+automacao/pedidos_aco.csv
+automacao/conciliacao_*.xlsx
+
+# python
+__pycache__/

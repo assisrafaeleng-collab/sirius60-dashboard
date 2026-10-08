@@ -1,14 +1,19 @@
-import { supabase } from '../../lib/supabase'
+import { supabase, supabasePronto } from '../../lib/supabase'
+import { senhaOk } from '../../lib/senha-servidor'
 import { OBRA, dataParaSemana } from '../../lib/constants'
 
 // Diário de ocorrências.
-// GET                       -> lista, mais recente primeiro
-// POST   { senha, ... }     -> cria
-// PUT    { senha, id, ... } -> edita
-// DELETE ?id=N&senha=...    -> exclui
+// GET               -> lista, mais recente primeiro (aberto: aparece na Visão geral)
+// POST   { ... }    -> cria      | gravações exigem a senha no
+// PUT    { id, ... } -> edita    | cabeçalho x-dashboard-senha
+// DELETE ?id=N      -> exclui    |
 export default async function handler(req, res) {
   const obra_id = OBRA.id
-  const ok = s => process.env.SENHA_MEDICAO && s === process.env.SENHA_MEDICAO
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+  if (req.method !== 'GET' && !senhaOk(req, res)) return
+  if (!supabasePronto(res)) return
 
   if (req.method === 'GET') {
     try {
@@ -23,10 +28,6 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST' || req.method === 'PUT') {
     const b = req.body || {}
-    if (!process.env.SENHA_MEDICAO) {
-      return res.status(500).json({ error: 'SENHA_MEDICAO não configurada no .env.local' })
-    }
-    if (!ok(b.senha)) return res.status(401).json({ error: 'Senha incorreta' })
     if (!b.data_ocorrencia) return res.status(400).json({ error: 'Informe a data' })
     if (!b.categoria) return res.status(400).json({ error: 'Escolha a categoria' })
     if (!b.descricao || !b.descricao.trim()) {
@@ -65,7 +66,6 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
-    if (!ok(req.query.senha)) return res.status(401).json({ error: 'Senha incorreta' })
     try {
       const { error } = await supabase.from('ocorrencias_obra')
         .delete().eq('obra_id', obra_id).eq('id', parseInt(req.query.id))

@@ -1,4 +1,4 @@
-import { supabase } from '../../lib/supabase'
+import { supabase, supabasePronto } from '../../lib/supabase'
 import { OBRA, GRUPO_MAX_EVM, PREFIXOS_PRE_OBRA, EAP_CUSTO_DE_TEMPO, dataParaSemana, inicioSemana, fimSemana } from '../../lib/constants'
 
 const PRAZO = OBRA.prazo_semanas   // 96
@@ -11,6 +11,7 @@ function semanaDoLancamento(l) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  if (!supabasePronto(res)) return
 
   const obra_id = req.query.obra_id || OBRA.id
   const semLimite = Math.min(Math.max(parseInt(req.query.semana) || PRAZO, 1), PRAZO)

@@ -1,4 +1,4 @@
-import { supabase } from '../../lib/supabase'
+import { supabase, supabasePronto } from '../../lib/supabase'
 import { OBRA } from '../../lib/constants'
 
 // Avanço físico medido, acumulado até a semana pedida.
@@ -6,6 +6,7 @@ import { OBRA } from '../../lib/constants'
 // mais recente até ali — medição é acumulada, não incremental.
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  if (!supabasePronto(res)) return
   const semana = Math.min(Math.max(parseInt(req.query.semana) || OBRA.prazo_semanas, 1),
                           OBRA.prazo_semanas)
   try {

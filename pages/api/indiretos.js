@@ -1,9 +1,10 @@
-import { supabase } from '../../lib/supabase'
+import { supabase, supabasePronto } from '../../lib/supabase'
 import { OBRA, dataParaSemana } from '../../lib/constants'
 
 // Custos indiretos: planejado (desembolso na semana e acumulado) x realizado.
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
+  if (!supabasePronto(res)) return
   const semana = Math.min(Math.max(parseInt(req.query.semana) || OBRA.prazo_semanas, 1),
                           OBRA.prazo_semanas)
   try {

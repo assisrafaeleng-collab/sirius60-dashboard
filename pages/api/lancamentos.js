@@ -1,12 +1,19 @@
-import { supabase } from '../../lib/supabase'
+import { supabase, supabasePronto } from '../../lib/supabase'
+import { senhaOk } from '../../lib/senha-servidor'
 import { OBRA, dataParaSemana } from '../../lib/constants'
 
-// Lançamentos de custo.
-// GET    ?semana=N       -> lançamentos até a semana N
-// POST   { senha, ... }  -> cria
-// DELETE ?id=N&senha=... -> exclui
+// Lançamentos de custo. Tudo exige a senha no cabeçalho x-dashboard-senha
+// (a lista só aparece na aba Lançamentos, que é protegida).
+// GET    ?semana=N -> lançamentos até a semana N
+// POST   { ... }   -> cria
+// DELETE ?id=N     -> exclui
 export default async function handler(req, res) {
   const obra_id = OBRA.id
+  if (!['GET', 'POST', 'DELETE'].includes(req.method)) {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+  if (!senhaOk(req, res)) return
+  if (!supabasePronto(res)) return
 
   if (req.method === 'GET') {
     const semana = parseInt(req.query.semana) || OBRA.prazo_semanas
@@ -29,12 +36,6 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     const b = req.body || {}
-    if (!process.env.SENHA_MEDICAO) {
-      return res.status(500).json({ error: 'SENHA_MEDICAO não configurada no .env.local' })
-    }
-    if (b.senha !== process.env.SENHA_MEDICAO) {
-      return res.status(401).json({ error: 'Senha incorreta' })
-    }
     if (!b.data_emissao) return res.status(400).json({ error: 'Informe a data da nota' })
     if (!b.valor || parseFloat(b.valor) <= 0) {
       return res.status(400).json({ error: 'Informe um valor maior que zero' })
@@ -79,9 +80,6 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'DELETE') {
-    if (req.query.senha !== process.env.SENHA_MEDICAO) {
-      return res.status(401).json({ error: 'Senha incorreta' })
-    }
     try {
       const { error } = await supabase.from('custos_lancamentos')
         .delete().eq('obra_id', obra_id).eq('id', parseInt(req.query.id))

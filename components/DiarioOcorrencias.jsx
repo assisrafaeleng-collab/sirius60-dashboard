@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { OBRA, fmtDate, dataParaSemana, inicioSemana, fimSemana } from '../lib/constants'
+import { OBRA, fmtDate, dataParaSemana, inicioSemana, fimSemana, hojeSaoPaulo } from '../lib/constants'
+import { fetchComSenha } from '../lib/fetch-com-senha'
 
 const CATEGORIAS = ['Chuva', 'Falta de material', 'Falta de mão de obra',
   'Quebra de equipamento', 'Retrabalho', 'Embargo ou fiscalização',
@@ -46,7 +47,7 @@ export default function DiarioOcorrencias({ sessao, itens }) {
   const diasSomados = (lista || []).reduce((s, o) => s + (o.dias_atraso_estimado || 0), 0)
 
   function novo() {
-    setForm({ ...VAZIO, data_ocorrencia: new Date().toISOString().slice(0, 10) })
+    setForm({ ...VAZIO, data_ocorrencia: hojeSaoPaulo() })
   }
   function editar(o) {
     setForm({
@@ -62,16 +63,16 @@ export default function DiarioOcorrencias({ sessao, itens }) {
   }
 
   async function salvar() {
-    if (!sessao?.senha) {
+    if (!sessao) {
       setToast({ tipo: 'err', txt: 'Abra a aba Medição ou Lançamentos para liberar a senha.' })
       return
     }
     setSalvando(true); setToast(null)
     try {
-      const r = await fetch('/api/ocorrencias', {
+      const r = await fetchComSenha('/api/ocorrencias', {
         method: form.id ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, senha: sessao.senha, registrado_por: sessao.quem }),
+        body: JSON.stringify({ ...form, registrado_por: sessao.quem }),
       })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao gravar')
@@ -84,14 +85,13 @@ export default function DiarioOcorrencias({ sessao, itens }) {
   }
 
   async function excluir(id) {
-    if (!sessao?.senha) {
+    if (!sessao) {
       setToast({ tipo: 'err', txt: 'Abra a aba Medição ou Lançamentos para liberar a senha.' })
       return
     }
     if (!confirm('Excluir esta ocorrência?')) return
     try {
-      const r = await fetch(`/api/ocorrencias?id=${id}&senha=${encodeURIComponent(sessao.senha)}`,
-        { method: 'DELETE' })
+      const r = await fetchComSenha(`/api/ocorrencias?id=${id}`, { method: 'DELETE' })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao excluir')
       setToast({ tipo: 'ok', txt: 'Ocorrência excluída.' }); carregar()

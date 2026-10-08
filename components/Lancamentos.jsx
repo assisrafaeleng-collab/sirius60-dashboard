@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { fetchComSenha } from '../lib/fetch-com-senha'
 import { fmtMoeda, fmtMoedaK, fmtDate, semanaLabel, dataParaSemana } from '../lib/constants'
 
 const STATUS = [
@@ -34,7 +35,7 @@ export default function Lancamentos({ semana, sessao }) {
 
   function carregar() {
     setLista(null)
-    fetch(`/api/lancamentos?semana=${semana}`).then(r => r.json()).then(j => {
+    fetchComSenha(`/api/lancamentos?semana=${semana}`).then(r => r.json()).then(j => {
       if (j.error) { setToast({ tipo: 'err', txt: j.message || j.error }); setLista([]) }
       else setLista(j.lancamentos)
     }).catch(e => { setToast({ tipo: 'err', txt: e.message }); setLista([]) })
@@ -87,9 +88,9 @@ export default function Lancamentos({ semana, sessao }) {
   async function salvar() {
     setSalvando(true); setToast(null)
     try {
-      const r = await fetch('/api/lancamentos', {
+      const r = await fetchComSenha('/api/lancamentos', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...f, senha: sessao?.senha, lancado_por: sessao?.quem }),
+        body: JSON.stringify({ ...f, lancado_por: sessao?.quem }),
       })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao gravar')
@@ -106,8 +107,7 @@ export default function Lancamentos({ semana, sessao }) {
   async function excluir(id) {
     if (!confirm('Excluir este lançamento?')) return
     try {
-      const r = await fetch(`/api/lancamentos?id=${id}&senha=${encodeURIComponent(sessao?.senha || '')}`,
-        { method: 'DELETE' })
+      const r = await fetchComSenha(`/api/lancamentos?id=${id}`, { method: 'DELETE' })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao excluir')
       setToast({ tipo: 'ok', txt: 'Lançamento excluído.' })

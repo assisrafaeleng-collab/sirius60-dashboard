@@ -10,7 +10,7 @@ Next.js 14 + Supabase + Vercel.
   e ficam fora do valor agregado.
 
 ## Rodar local
-1. Copie `.env.local.exemplo` para `.env.local` e preencha URL e chave anon.
+1. Copie `.env.local.exemplo` para `.env.local` e preencha URL, chave secreta (SUPABASE_SECRET_KEY) e SENHA_MEDICAO.
 2. `npm install`
 3. `npm run dev` -> http://localhost:3000
 

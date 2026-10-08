@@ -4,6 +4,7 @@ import Dashboard from '../components/Dashboard'
 import MedicaoSemanal from '../components/MedicaoSemanal'
 import Lancamentos from '../components/Lancamentos'
 import Desbloqueio from '../components/Desbloqueio'
+import { esquecerSenha } from '../lib/fetch-com-senha'
 import { OBRA, semanaLabel, semanaAtualObra, mesDaSemana, inicioSemana, fimSemana } from '../lib/constants'
 
 const ABAS = ['Visão geral', 'Medição semanal', 'Lançamentos']
@@ -11,8 +12,9 @@ const ABAS = ['Visão geral', 'Medição semanal', 'Lançamentos']
 export default function Home() {
   const [semana, setSemana] = useState(semanaAtualObra())
   const [aba, setAba] = useState(0)
-  // liberado uma vez, vale enquanto a página estiver aberta
-  const [sessao, setSessao] = useState(null)   // { senha, quem }
+  // liberado uma vez, vale enquanto a página estiver aberta.
+  // A senha fica em lib/fetch-com-senha (sessionStorage), não no estado.
+  const [sessao, setSessao] = useState(null)   // { quem }
 
   // agrupa as 96 semanas por mês, para o seletor não virar uma lista cega
   const grupos = []
@@ -57,7 +59,7 @@ export default function Home() {
           {sessao && (
             <div className="kpi-sub" style={{ marginTop: 10 }}>
               Lançamentos liberados{sessao.quem ? ` para ${sessao.quem}` : ''} ·{' '}
-              <a onClick={() => setSessao(null)}
+              <a onClick={() => { esquecerSenha(); setSessao(null) }}
                  style={{ color: 'var(--accent)', cursor: 'pointer' }}>bloquear</a>
             </div>
           )}
@@ -72,7 +74,7 @@ export default function Home() {
         <div style={{ marginTop: 22 }}>
           {aba === 0 && <Dashboard semana={semana} sessao={sessao} />}
           {(aba === 1 || aba === 2) && !sessao && (
-            <Desbloqueio onLiberar={(senha, quem) => setSessao({ senha, quem })} />
+            <Desbloqueio onLiberar={quem => setSessao({ quem })} />
           )}
           {aba === 1 && sessao && <MedicaoSemanal semana={semana} sessao={sessao} />}
           {aba === 2 && sessao && <Lancamentos semana={semana} sessao={sessao} />}

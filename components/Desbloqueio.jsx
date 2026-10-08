@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { conferirSenha } from '../lib/fetch-com-senha'
 
 // Pede a senha uma vez e libera as gravações enquanto a página estiver aberta.
 export default function Desbloqueio({ onLiberar }) {
@@ -11,13 +12,10 @@ export default function Desbloqueio({ onLiberar }) {
     if (!senha) { setErro('Informe a senha.'); return }
     setIndo(true); setErro(null)
     try {
-      const r = await fetch('/api/auth', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ senha }),
-      })
+      const r = await conferirSenha(senha)
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao validar')
-      onLiberar(senha, quem)
+      onLiberar(quem)
     } catch (e) {
       setErro(e.message === 'Failed to fetch'
         ? 'Sem resposta do servidor. Verifique se o npm run dev está rodando.'
