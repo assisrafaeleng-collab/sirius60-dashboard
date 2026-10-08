@@ -1,7 +1,8 @@
 -- =====================================================================
 -- Sirius 60 — DESFAZER o orçamento final (1-orcamento-final.sql)
 -- Volta orcamento_planejado ao backup de 08/10/2026, linha a linha pelo id:
---   - preço, código, descrição e pavimento das linhas alteradas voltam ao que eram;
+--   - preço, código, descrição, pavimento e semanas das linhas alteradas voltam ao que eram
+--     (ex.: 4.2.3 Subsolo volta a 4.1.3 Pilotis; 6.1.1.1 volta a 6.1.1);
 --   - a linha 17.1.14 (que não está no backup) sai.
 -- Não toca em medições nem custos. custos_indiretos_planejados não foi alterado pelo passo 1.
 -- As tabelas de backup ficam (para apagar depois, ver o fim do arquivo).
@@ -17,11 +18,12 @@ end $$;
 
 update public.orcamento_planejado as o
    set codigo_eap = b.codigo_eap, descricao = b.descricao, pavimento = b.pavimento,
-       preco_unitario = b.preco_unitario, preco_total = b.preco_total
+       preco_unitario = b.preco_unitario, preco_total = b.preco_total,
+       semana_inicio = b.semana_inicio, semana_fim = b.semana_fim
   from public.orcamento_planejado_bkp_20261008 as b
  where o.id = b.id and o.obra_id = 'sirius60'
-   and (o.codigo_eap, o.descricao, o.pavimento, o.preco_unitario, o.preco_total)
-       is distinct from (b.codigo_eap, b.descricao, b.pavimento, b.preco_unitario, b.preco_total);
+   and (o.codigo_eap, o.descricao, o.pavimento, o.preco_unitario, o.preco_total, o.semana_inicio, o.semana_fim)
+       is distinct from (b.codigo_eap, b.descricao, b.pavimento, b.preco_unitario, b.preco_total, b.semana_inicio, b.semana_fim);
 
 delete from public.orcamento_planejado
  where obra_id = 'sirius60' and codigo_eap = '17.1.14'

@@ -122,8 +122,8 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   com ela (grupo 17 = 782.444,00); indireto 2.446.376,88.
 - Diferença para o banco: +128.752,27, só preço da forma de MO (R$ 60 → R$ 75/m²) em 2.1.6, 3.1.5, 3.2.5,
   3.3.5, 3.4.6, 3.5.5, 3.6.5 e 3.7.5. Mais a linha nova 17.1.14 "Combustível obra" R$ 24.000,00 (Canteiro).
-- Código repetido no mesmo pavimento ganha código próprio: 2ª linha 4.1.3 (Encunhamento 666,64) → 4.1.3.1;
-  6.1.1 "prumadas e reservatório" (4 pavimentos) → 6.1.1.1. Pavimento da 4.1.3.1 (Pilotis × Subsolo): a decidir.
+- 2ª linha "4.1.3 Encunhamento" (47,75 m, R$ 666,64) está no subgrupo 4.2 SUBSOLO da planilha final: erro de
+  numeração → 4.2.3, pavimento Subsolo (semanas mantidas). 6.1.1 "prumadas e reservatório" (4 pavimentos) → 6.1.1.1.
 - Horas e semanas: as do banco; linha nova sem horas. 3.0.1 e 4.0.9 (R$ 0 com horas) ficam no banco.
 - Aplicação: supabase/orcamento/1-orcamento-final.sql (backup com data + desfazer). SÓ DEPOIS de promovido o
   código que lê o orçamento do banco.

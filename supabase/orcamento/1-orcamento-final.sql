@@ -19,10 +19,11 @@
 --      (*) no 2º Pav a planilha e o banco têm a descrição trocada: 3.4.5 diz "Apenas MO" com preço de
 --          material (R$ 37) e 3.4.6 diz "Apenas Material" com preço de MO. O valor segue a planilha final.
 --   3) Linha nova 17.1.14 "Combustível obra" (na planilha: "Gasolina Caro Vandinho"), Canteiro, 24 × R$ 1.000.
---   4) Código próprio para a 2ª linha repetida no mesmo pavimento:
---        4.1.3 Encunhamento (R$ 666,64, linha da subseção 4.2 SUBSOLO na planilha) → 4.1.3.1
+--   4) Códigos repetidos no mesmo pavimento:
+--        4.1.3 Encunhamento (47,75 m, R$ 666,64) está na subseção 4.2 SUBSOLO da planilha final: é erro de
+--          numeração → passa a ser 4.2.3, pavimento Subsolo (decisão do Rafael, 08/10/2026)
 --        6.1.1 "MO Hidráulica - Ademir (prumadas e reservatório)" nos 4 pavimentos  → 6.1.1.1
---      Nenhuma medição nem custo gravado usa 4.1.3 ou 6.1.1 (conferido em 08/10/2026).
+--      Nenhuma medição nem custo gravado usa 4.1.3 (de nenhum pavimento), 4.2.3 ou 6.1.1 (conferido em 08/10/2026).
 -- Não muda: custos_indiretos_planejados (grupo 19 igual à planilha: 2.446.376,88), horas, semanas,
 -- medições e custos. Medições guardam % por código + pavimento: a 2.1.6 (3 medições) continua igual em %,
 -- e o valor agregado dela passa a usar a verba nova.
@@ -38,8 +39,8 @@ begin
   if n <> 333 or round(total, 2) <> 7398635.20 then
     raise exception 'orcamento_planejado não está como esperado (% linhas, total %): nada foi feito', n, total;
   end if;
-  if exists (select 1 from public.orcamento_planejado where obra_id = 'sirius60' and codigo_eap in ('17.1.14', '4.1.3.1', '6.1.1.1')) then
-    raise exception 'já existe 17.1.14, 4.1.3.1 ou 6.1.1.1: este arquivo já foi rodado?';
+  if exists (select 1 from public.orcamento_planejado where obra_id = 'sirius60' and codigo_eap in ('17.1.14', '4.2.3', '6.1.1.1')) then
+    raise exception 'já existe 17.1.14, 4.2.3 ou 6.1.1.1: este arquivo já foi rodado?';
   end if;
 end $$;
 
@@ -75,11 +76,11 @@ values ('sirius60', '17.1.14', 'Combustível obra', 24, 'mês', 1000.00, 24000.0
         'Locação de Equipamentos', 0, true);
 
 -- 4) Linhas repetidas no mesmo código + pavimento
-update public.orcamento_planejado set codigo_eap = '4.1.3.1'
- where id = 752 and obra_id = 'sirius60' and codigo_eap = '4.1.3' and preco_total = 666.64;
--- Pavimento da 4.1.3.1: no banco está "Pilotis"; na planilha final a linha fica na subseção 4.2 SUBSOLO.
--- Decisão do Rafael. Se for Subsolo, tire o comentário da linha abaixo antes de rodar:
--- update public.orcamento_planejado set pavimento = 'Subsolo' where id = 752 and codigo_eap = '4.1.3.1';
+update public.orcamento_planejado set codigo_eap = '4.2.3', pavimento = 'Subsolo'
+ where id = 752 and obra_id = 'sirius60' and codigo_eap = '4.1.3' and pavimento = 'Pilotis' and preco_total = 666.64;
+-- Semanas: a linha 752 está em S29–32 (as do Pilotis); a alvenaria do Subsolo (4.2.1, 4.2.2) está em S21–23.
+-- As semanas foram mantidas. Para seguir o Subsolo, tire o comentário da linha abaixo antes de rodar:
+-- update public.orcamento_planejado set semana_inicio = 21, semana_fim = 23 where id = 752 and codigo_eap = '4.2.3';
 update public.orcamento_planejado
    set codigo_eap = '6.1.1.1', descricao = 'MO Hidráulica - Ademir (prumadas e reservatório)'
  where id in (988, 989, 990, 991) and obra_id = 'sirius60' and codigo_eap = '6.1.1';
@@ -92,6 +93,10 @@ begin
   select count(*), sum(preco_total) into n, total from public.orcamento_planejado where obra_id = 'sirius60';
   if n <> 334 or round(total, 2) <> 7551387.47 then
     raise exception 'resultado inesperado (% linhas, total %): nada foi gravado', n, total;
+  end if;
+  if not exists (select 1 from public.orcamento_planejado where id = 752 and codigo_eap = '4.2.3' and pavimento = 'Subsolo')
+     or (select count(*) from public.orcamento_planejado where obra_id = 'sirius60' and codigo_eap = '6.1.1.1') <> 4 then
+    raise exception 'troca de códigos (4.2.3 / 6.1.1.1) não aconteceu como esperado: nada foi gravado';
   end if;
 end $$;
 
