@@ -17,6 +17,8 @@ def colunas(df):
 from util import norm, raiz_cnpj, similaridade, padronizar as _padronizar
 
 OBRA_ID = 'sirius60'
+INICIO_OBRA = '2026-08-03'   # S01; pago antes disso entra na competência do mês de crédito (modo --completo)
+MES_CREDITO = '2026-08'
 # o centro de custo vem escrito de três jeitos: 'RUA SIRIUS Nº 60' (Fonseca), 'RUA SIRIUS N º 60'
 # (Dinâmica) e '1.02.0046' (OC e consulta SQL). Compara sem espaços, acentos e º.
 CENTROS_CUSTO = {'RUASIRIUSN60', '1.02.0046'}
@@ -598,6 +600,11 @@ if __name__ == '__main__':
     tudo['cruzamento'] = tudo.cruzamento.fillna('')
     tudo['chave'] = tudo.fonte + '|' + tudo.ref.astype(str) + '|' + tudo.documento
     tudo['mes'] = tudo.competencia.astype(str).str[:7]
+    if a.completo:
+        # Mês de "crédito" (CLAUDE.md, 08/10/2026): o que foi pago antes do início da obra (03/08/2026) entra na
+        # competência 2026-08. A data real do pagamento continua em 'competencia' (o importar.js leva para o histórico).
+        antes = pd.to_datetime(tudo.competencia, errors='coerce') < pd.Timestamp(INICIO_OBRA)
+        tudo.loc[antes, 'mes'] = MES_CREDITO
 
     ocs, regras = ler_ocs(a.oc), carregar_regras()
     try:
@@ -609,7 +616,11 @@ if __name__ == '__main__':
     # título baixado com valor baixado zero (ex.: cartão pré-pago): não há prova de pagamento, mas o
     # status é Baixado — vai para pendência para você confirmar, não some como "sem pagamento"
     duvida = (nao_custo.tipo == 'sem pagamento no relatório') & (nao_custo.baixa_sem_valor == True)
-    forcar = {k: 'baixado no TOTVS com VALORBAIXA 0: confirme o pagamento' for k in nao_custo.loc[duvida, 'chave']}
+    # pagamento já confirmado por você: decisão pontual com EAP (ex.: Caixa Cartões → 18.1.1, 08/10/2026)
+    confirmados = set(zip(pontuais[pontuais.eap != 'NAO_CUSTO'].cnpj, pontuais[pontuais.eap != 'NAO_CUSTO'].documento))
+    forcar = {k: 'baixado no TOTVS com VALORBAIXA 0: confirme o pagamento'
+              for k, c, d in zip(nao_custo.loc[duvida, 'chave'], nao_custo.loc[duvida, 'cnpj'], nao_custo.loc[duvida, 'documento'])
+              if (c, d) not in confirmados}
     custo = pd.concat([custo, nao_custo[duvida].drop(columns='tipo')], ignore_index=True)
     nao_custo = nao_custo[~duvida].reset_index(drop=True)
     forcar.update(duplicidades(custo, pontuais))

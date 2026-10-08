@@ -37,6 +37,7 @@ const { createClient } = require('@supabase/supabase-js')
 
 const OBRA = 'sirius60'
 const S01 = '2026-08-03' // início da obra (lib/constants.js); data menor que esta não tem semana
+const MES_CREDITO = '2026-08' // o que foi pago antes de S01 entra nesta competência (CLAUDE.md, 08/10/2026)
 const RAIZ = path.join(__dirname, '..', '..')
 const AUTOMACAO = path.join(RAIZ, 'automacao')
 const LANCADO_POR = 'importacao'
@@ -383,7 +384,9 @@ async function importar(db) {
     }
     if (!Number.isFinite(l.valor) || l.valor <= 0) travas.push(`linha ${l.__linha}: valor inválido`)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(l.__pago)) travas.push(`linha ${l.__linha}: data de pagamento inválida`)
-    else if (l.__pago.slice(0, 7) !== comp) travas.push(`linha ${l.__linha}: pago em ${br(l.__pago)}, fora de ${comp}`)
+    // mês de "crédito" (CLAUDE.md): pago antes do início da obra entra na competência MES_CREDITO
+    else if (l.__pago.slice(0, 7) !== comp && !(l.__pago < S01 && comp === MES_CREDITO))
+      travas.push(`linha ${l.__linha}: pago em ${br(l.__pago)}, fora de ${comp}`)
     if (!l.fonte) travas.push(`linha ${l.__linha}: fonte desconhecida`)
     if (!l.pavimento) avisos.push(`${l.codigo_eap} (${l.fornecedor}): sem pavimento definido`)
   })
@@ -478,7 +481,8 @@ async function importar(db) {
   const importacao_id = imp.data.id
 
   const novas = linhas.map(({ __linha, __pago, ...l }) => ({ ...l, importacao_id }))
-  const r = await db.from('custos_lancamentos').insert(novas)
+  // carga vazia (mês sem custo, ex.: 05–07 depois do mês de crédito): só sai o que havia, com backup em substituidos
+  const r = novas.length ? await db.from('custos_lancamentos').insert(novas) : { error: null }
   if (r.error) {
     await db.from('custos_lancamentos').delete().eq('importacao_id', importacao_id)
     await db.from('importacoes').delete().eq('id', importacao_id)
