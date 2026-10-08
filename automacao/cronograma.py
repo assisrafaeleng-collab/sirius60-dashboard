@@ -15,6 +15,12 @@ Regras (CLAUDE.md, 08/10/2026):
 - Ligação: por pavimento + serviço (os códigos do cronograma não são os da EAP). Encunhamento de cada pavimento →
   "Alvenaria <pavimento>" (as horas do cronograma já o incluem); 4.0.9 → 4.9. Custo de tempo (1.1.6, grupos 17,
   18 e 19) não entra no avanço.
+- Sequência dentro da estrutura de cada pavimento (Rafael, 08/10; pedido 12): cada linha tem a SUA janela dentro da
+  atividade (JANELAS_ESTRUTURA): armação primeiro; forma começa meia semana depois do início da armação e corre junto;
+  laje treliçada antes da concretagem da laje; concretagem 30% pilares + 70% laje (laje no fim); escada na última
+  semana. O material segue a janela do serviço a que está vinculado (aço → armação, forma material → forma, concreto
+  usinado → concretagem). As horas de cada atividade não mudam (cada linha leva horas_atividade × hh_linha ÷ hh_banco).
+  --sem-sequencia volta à distribuição igual em todas as semanas (conferência).
 """
 import argparse, glob, math, os, re
 from datetime import date, timedelta
@@ -68,6 +74,37 @@ def espalhar(cal, k, quanto, por_dia):
         ov = max(0.0, min(i + 1, b) - max(i, a))
         if ov > 0:
             por_dia[dia] = por_dia.get(dia, 0.0) + quanto * ov / (b - a)
+
+
+def espalhar_coord(cal, x0, x1, quanto, por_dia):
+    """como espalhar(), mas no trecho contínuo [x0, x1] do cronograma (semana k = trecho [k-1, k]); parte igual por
+    unidade de tempo do cronograma"""
+    if quanto == 0 or x1 <= x0:
+        return
+    for k in range(int(math.floor(x0)) + 1, int(math.ceil(x1)) + 1):
+        o0, o1 = max(x0, k - 1), min(x1, k)
+        if o1 <= o0:
+            continue
+        M = math.ceil(k / 4); p = k - 4 * (M - 1)
+        dias = dias_do_mes(cal, M); n = len(dias)
+        a, b = n * (p - 1 + o0 - (k - 1)) / 4, n * (p - 1 + o1 - (k - 1)) / 4
+        parte = quanto * (o1 - o0) / (x1 - x0)
+        for i, dia in enumerate(dias):
+            ov = max(0.0, min(i + 1, b) - max(i, a))
+            if ov > 0:
+                por_dia[dia] = por_dia.get(dia, 0.0) + parte * ov / (b - a)
+
+
+def semana_da_coord(cal, x, ponta):
+    """semana real que contém o ponto x do cronograma (ponta 'ini': o dia que começa em x; 'fim': o dia que termina em x)"""
+    k = int(math.floor(x)) + 1 if ponta == 'ini' else int(math.ceil(x))
+    k = max(1, min(k, SEM_CRONO))
+    M = math.ceil(k / 4); p = k - 4 * (M - 1)
+    dias = dias_do_mes(cal, M); n = len(dias)
+    f = x - (k - 1)
+    i = math.floor(n * (p - 1 + f) / 4 + 1e-9) if ponta == 'ini' else math.ceil(n * (p - 1 + f) / 4 - 1e-9) - 1
+    d = dias[max(0, min(i, n - 1))]
+    return int(cal[(cal.data_inicio <= d) & (cal.data_fim >= d)].semana_numero.iloc[0])
 
 
 def intervalo_real(cal, ini, fim_k):
@@ -130,6 +167,73 @@ FIXO = {
 # é a concretagem de blocos, tubulões e vigas (2.1.4 do cronograma).
 ESTRUTURA_FUNDACAO = '2.1.4'
 
+# Janelas dentro da atividade (pedido 12, PROPOSTA para o Rafael aprovar): (início, fim, fração) em semanas do
+# cronograma contadas do início da atividade (0 = começo da 1ª semana). O Flats não tem regra explícita em semanas
+# (o cronograma dele já separava armação, forma, lançamento e escada por mês); a ordem é a dele.
+JANELAS_ESTRUTURA = {
+    8: {'armacao': [(0, 6, 1)], 'forma': [(0.5, 7, 1)], 'laje_trelicada': [(4, 7, 1)],
+        'concretagem': [(3, 4, 0.3), (7, 8, 0.7)], 'escada': [(7, 8, 1)]},
+    4: {'armacao': [(0, 3, 1)], 'forma': [(0.5, 3.5, 1)], 'laje_trelicada': [(2, 3.5, 1)],
+        'concretagem': [(1, 2, 0.3), (3, 4, 0.7)], 'escada': [(3, 4, 1)]},
+}
+# Fundação, atividade 2.1.3 do cronograma (forma + armação de blocos e vigas, 10 semanas): armação começa, forma meia
+# semana depois e as duas correm juntas. As outras atividades da fundação já vêm em sequência no cronograma
+# (escavação → forma/armação → concretagem → piso → impermeabilização).
+JANELAS_FUNDACAO_213 = {'armacao': [(0, 9.5, 1)], 'forma': [(0.5, 10, 1)]}
+
+
+def servico_estrutura(descricao):
+    """tipo de serviço de uma linha da estrutura (grupos 2 e 3) pela descrição; o material vai junto do serviço"""
+    d = str(descricao).upper()
+    if 'ESCADA' in d:
+        return 'escada'
+    if 'TRELI' in d:
+        return 'laje_trelicada'
+    if 'FORMA' in d:
+        return 'forma'
+    if 'ARMAÇÃO' in d or d.startswith('AÇO'):
+        return 'armacao'
+    if 'CONCRETO USINADO' in d or 'LANÇAMENTO' in d:
+        return 'concretagem'
+    return ''
+
+
+# Encunhamento (Rafael, 08/10): em cada pavimento, começa na semana REAL seguinte ao fim da alvenaria do mesmo
+# pavimento, com DURAÇÃO DE 2 SEMANAS em todos os pavimentos (Rafael, 08/10).
+# As horas continuam as da atividade "Alvenaria <pavimento>" (horas_atividade × hh_linha ÷ hh_banco); só o tempo muda.
+ENCUNHAMENTO = 'ENCUNHAMENTO: semana seguinte ao fim da alvenaria do pavimento'
+DUR_ENCUNHAMENTO = 2      # semanas reais
+
+
+def espalhar_real(cal, s0, s1, quanto, por_dia):
+    """soma em por_dia 'quanto' espalhado igual pelos dias das semanas reais s0..s1"""
+    a = cal.data_inicio[cal.semana_numero == s0].iloc[0]
+    b = cal.data_fim[cal.semana_numero == min(s1, len(cal))].iloc[0]
+    n = (b - a).days + 1
+    for i in range(n):
+        dia = a + timedelta(days=i)
+        por_dia[dia] = por_dia.get(dia, 0.0) + quanto / n
+
+
+def janelas(o, dur, sequencia=True):
+    """lista de (x0, x1, fração) da linha, em semanas do cronograma contadas do início da atividade
+    (encunhamento: lista vazia, porque vai em semanas reais depois da alvenaria)"""
+    if o.regra == ENCUNHAMENTO:
+        return [] if sequencia else [(0, dur, 1)]
+    if o.regra.startswith('ESCADA'):
+        return [(dur - 1, dur, 1)]
+    if not sequencia:
+        return [(0, dur, 1)]
+    if o.atividade in PAV_EST.values() and dur in JANELAS_ESTRUTURA:
+        tipo = servico_estrutura(o.descricao)
+        if tipo:
+            return JANELAS_ESTRUTURA[dur][tipo]
+    if o.atividade == '2.1.3':
+        tipo = servico_estrutura(o.descricao)
+        if tipo in JANELAS_FUNDACAO_213:
+            return JANELAS_FUNDACAO_213[tipo]
+    return [(0, dur, 1)]
+
 
 def ligar(o):
     eap, pav, d = o.codigo_eap, o.pavimento, str(o.descricao).upper()
@@ -148,6 +252,8 @@ def ligar(o):
             return '11.1.6', 'piso polido (cronograma: "junto à laje de cada pavimento")'
         if pav in PAV_EST:
             return PAV_EST[pav], 'estrutura do pavimento'
+    if g == 4 and pav in PAV_ALV and 'ENCUNHAMENTO' in d:
+        return PAV_ALV[pav], ENCUNHAMENTO
     if g == 4 and pav in PAV_ALV:
         # o cronograma soma o encunhamento de cada pavimento dentro da "Alvenaria <pavimento>"; a 4.9 (60,1 h) é a
         # linha 4.0.9 do orçamento (vergas, contravergas e encunhamento diluídos)
@@ -161,6 +267,7 @@ if __name__ == '__main__':
     ap.add_argument('--cronograma', default=None)
     ap.add_argument('--saida', default='saida_v2')
     ap.add_argument('--hoje', default=None)
+    ap.add_argument('--sem-sequencia', action='store_true', help='distribuição antiga (todas as linhas juntas na atividade)')
     ap.add_argument('--indiretos', default=None, help='exportação de custos_indiretos_planejados (id, codigo_eap, categoria, recorrente, semana_desembolso, semana_fim, valor_total)')
     a = ap.parse_args()
     arq = a.cronograma or [f for f in glob.glob('entrada/cronograma/*Final*.xlsx') if not os.path.basename(f).startswith('~$')][0]
@@ -176,11 +283,25 @@ if __name__ == '__main__':
     orc['descricao_atividade'] = orc.atividade.map(info.descricao)
     orc['ini_crono'] = orc.atividade.map(info.ini); orc['fim_crono'] = orc.atividade.map(info.fim)
     esc = orc.regra.str.startswith('ESCADA')
-    orc.loc[esc, 'ini_crono'] = orc.loc[esc, 'fim_crono']          # escada: só a última semana da atividade
-    reais = {r.atividade: intervalo_real(cal, r.ini, r.fim) for r in crono.itertuples()}
-    ult = {r.atividade: intervalo_real(cal, r.fim, r.fim) for r in crono.itertuples()}
-    orc['semana_inicio_real'] = [(ult if e else reais)[x][0] if x in reais else None for x, e in zip(orc.atividade, esc)]
-    orc['semana_fim_real'] = [(ult if e else reais)[x][1] if x in reais else None for x, e in zip(orc.atividade, esc)]
+    # janelas de cada linha dentro da atividade → semanas do cronograma e semanas reais (início da 1ª janela, fim da
+    # última; a concretagem vai do início dos pilares ao fim da laje)
+    jan = [janelas(o, int(info.dur[o.atividade]), not a.sem_sequencia) if o.atividade in info.index else None
+           for o in orc.itertuples()]
+    base = [info.ini[x] - 1 if x in info.index else None for x in orc.atividade]
+    orc['ini_crono'] = [b + math.floor(min(j[0] for j in js)) + 1 if js else None for b, js in zip(base, jan)]
+    orc['fim_crono'] = [b + math.ceil(max(j[1] for j in js)) if js else None for b, js in zip(base, jan)]
+    orc['semana_inicio_real'] = [semana_da_coord(cal, b + min(j[0] for j in js), 'ini') if js else None for b, js in zip(base, jan)]
+    orc['semana_fim_real'] = [semana_da_coord(cal, b + max(j[1] for j in js), 'fim') if js else None for b, js in zip(base, jan)]
+    orc['janelas'] = ['; '.join(f'{x0:g}-{x1:g}' + (f' ({f:.0%})' if f < 1 else '') for x0, x1, f in js) if js else '' for js in jan]
+    # encunhamento: semana real seguinte ao fim da alvenaria do pavimento (fim da atividade), duração atual da linha
+    enc = (orc.regra == ENCUNHAMENTO) & (not a.sem_sequencia)
+    for i in orc.index[enc]:
+        x = orc.atividade[i]
+        fim_alv = semana_da_coord(cal, info.ini[x] - 1 + info.dur[x], 'fim')
+        d = DUR_ENCUNHAMENTO
+        orc.loc[i, ['semana_inicio_real', 'semana_fim_real']] = [fim_alv + 1, min(fim_alv + d, len(cal))]
+        orc.loc[i, ['ini_crono', 'fim_crono']] = [None, None]
+        orc.loc[i, 'janelas'] = f'real S{fim_alv + 1}-S{min(fim_alv + d, len(cal))} ({d} sem. depois da alvenaria, fim S{fim_alv})'
     orc.to_csv(os.path.join(a.saida, 'eap_cronograma.csv'), index=False, encoding='utf-8-sig')
 
     # 2) atividades: horas do cronograma × horas e valor das linhas ligadas
@@ -191,20 +312,24 @@ if __name__ == '__main__':
     crono.to_csv(os.path.join(a.saida, 'cronograma_atividades.csv'), index=False, encoding='utf-8-sig')
 
     # 3) planejado por dia → por semana real
-    h_dia, v_dia = {}, {}
-    # escada: a parte da atividade que é escada (pela proporção das horas do banco; valor exato das linhas) vai
-    # inteira para a última semana; o resto se espalha igual por todas as semanas da atividade
-    esc_h = lig[lig.regra.str.startswith('ESCADA')].groupby('atividade').hh.sum()
-    esc_v = lig[lig.regra.str.startswith('ESCADA')].groupby('atividade').preco_total.sum()
+    # cada linha ligada nas suas janelas: horas = horas da atividade no cronograma × hh da linha ÷ hh das linhas da
+    # atividade (o total da atividade fica igual ao do cronograma); valor = preço da linha. Atividade sem horas no
+    # banco: as horas do cronograma se espalham pela atividade inteira.
+    h_dia, v_dia, enc_dia = {}, {}, {}
     for r in crono.itertuples():
-        fr = (esc_h.get(r.atividade, 0.0) / r.hh_banco) if r.hh_banco else 0.0
-        h_esc, v_esc = r.horas * fr, esc_v.get(r.atividade, 0.0)
-        for k in range(r.ini, r.fim + 1):
-            espalhar(cal, k, (r.horas - h_esc) / r.dur, h_dia)
-            espalhar(cal, k, (r.valor - v_esc) / r.dur, v_dia)
-        if h_esc or v_esc:
-            espalhar(cal, r.fim, h_esc, h_dia)
-            espalhar(cal, r.fim, v_esc, v_dia)
+        b = r.ini - 1
+        if not r.hh_banco:
+            espalhar_coord(cal, b, b + r.dur, r.horas, h_dia)
+        for o in lig[lig.atividade == r.atividade].itertuples():
+            h = r.horas * o.hh / r.hh_banco if r.hh_banco else 0.0
+            if o.regra == ENCUNHAMENTO and not a.sem_sequencia:
+                espalhar_real(cal, int(o.semana_inicio_real), int(o.semana_fim_real), h, h_dia)
+                espalhar_real(cal, int(o.semana_inicio_real), int(o.semana_fim_real), h, enc_dia)
+                espalhar_real(cal, int(o.semana_inicio_real), int(o.semana_fim_real), o.preco_total, v_dia)
+                continue
+            for x0, x1, f in janelas(o, r.dur, not a.sem_sequencia):
+                espalhar_coord(cal, b + x0, b + x1, h * f, h_dia)
+                espalhar_coord(cal, b + x0, b + x1, o.preco_total * f, v_dia)
     H, V = sum(h_dia.values()), sum(v_dia.values())
     cs = cal.copy()
     cs['horas'] = [sum(h for d, h in h_dia.items() if x.data_inicio <= d <= x.data_fim) for x in cal.itertuples()]
@@ -236,10 +361,21 @@ if __name__ == '__main__':
         print(f'  {r.atividade:7s} {r.descricao[:42]:42s} crono {r.horas:8.1f} | banco {r.hh_banco:8.1f} | dif {r.dif_h:+8.1f}')
     print(f'\nPLANEJADO: horas distribuídas {H:,.1f} (100% = {cs.pct_horas_acum.iloc[-1]:.4f}%) | valor {V:,.2f}')
     por_mes = cs.groupby('competencia').horas.sum()
-    meses_crono = {}
+    meses_crono = {}     # mesmas janelas, somadas por mês do cronograma (sem passar pelos dias)
+    def somar_mes(x0, x1, h):
+        for k in range(int(math.floor(x0)) + 1, int(math.ceil(x1)) + 1):
+            ov = min(x1, k) - max(x0, k - 1)
+            if ov > 0:
+                M = math.ceil(k / 4); meses_crono[M] = meses_crono.get(M, 0) + h * ov / (x1 - x0)
     for r in crono.itertuples():
-        for k in range(r.ini, r.fim + 1):
-            M = math.ceil(k / 4); meses_crono[M] = meses_crono.get(M, 0) + r.horas / r.dur
+        if not r.hh_banco:
+            somar_mes(r.ini - 1, r.fim, r.horas)
+        for o in lig[lig.atividade == r.atividade].itertuples():
+            for x0, x1, f in janelas(o, r.dur, not a.sem_sequencia):
+                somar_mes(r.ini - 1 + x0, r.ini - 1 + x1, r.horas * o.hh / r.hh_banco * f if r.hh_banco else 0.0)
+    for dia, h in enc_dia.items():     # encunhamento: já em dias reais (mês do calendário = mês do cronograma)
+        M = (dia.year - MES0[0]) * 12 + dia.month - MES0[1] + 1
+        meses_crono[M] = meses_crono.get(M, 0) + h
     dif_mes = max(abs(por_mes.iloc[M - 1] - meses_crono.get(M, 0)) for M in range(1, 25))
     print(f'  maior diferença mês do calendário × mês do cronograma: {dif_mes:.6f} h')
     for m in ['2026-08', '2026-09', '2026-10']:

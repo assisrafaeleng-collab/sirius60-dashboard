@@ -50,6 +50,8 @@ open(os.path.join(a.destino, '1-calendario.sql'), 'w', encoding='utf-8').write(f
 --   cada mês começa semana nova, fragmento de 1 dia junta com a vizinha do mesmo mês; S01 = 03/08/2026).
 -- curva_s_semanal_planejada: cronograma final (13-08-26, aba "Cronograma") espalhado pelos dias reais de cada mês
 --   (mês M do cronograma = mês do calendário). Horas: {tot_h:,.1f} h; valor das linhas ligadas: R$ {tot_v:,.2f}.
+--   Dentro da estrutura de cada pavimento, cada serviço na sua janela (pedido 12): armação → forma (meia semana
+--   depois, junto) → laje treliçada → concretagem 30% pilares / 70% laje → escada na última semana.
 -- Tabelas novas: RLS ligado, SEM política, SEM permissão para anon/authenticated (CLAUDE.md).
 -- =====================================================================
 begin;
@@ -161,8 +163,14 @@ open(os.path.join(a.destino, '2-semanas-orcamento.sql'), 'w', encoding='utf-8').
 -- Sirius 60 — SEMANAS, PASSO 2: semanas do orçamento e dos indiretos no calendário real (gerado por gerar_sql_semanas.py)
 -- Rodar DEPOIS do 3-pilotis-subsolo.sql (orçamento) e do 1-calendario.sql. Desfazer: 2-semanas-orcamento-desfazer.sql
 --
--- orcamento_planejado: cada linha ganha as semanas REAIS (S01..S{N}) da atividade do cronograma a que está ligada
---   (automacao/saida_v2/eap_cronograma.csv): da semana real que contém o início da atividade até a que contém o fim.
+-- orcamento_planejado: cada linha ganha as semanas REAIS (S01..S{N}) da sua janela dentro da atividade do cronograma
+--   a que está ligada (automacao/saida_v2/eap_cronograma.csv, coluna janelas): da semana real que contém o início da
+--   janela até a que contém o fim. Estrutura de cada pavimento (pedido 12, 8 semanas): armação/aço sem. 1–6; forma
+--   (MO e material) da metade da sem. 1 até a 7; laje treliçada 5–7; concretagem (lançamento e concreto usinado)
+--   30% pilares na sem. 4 e 70% laje na sem. 8 (a linha vai da sem. 4 à 8); Reservatório (4 semanas) na mesma ordem.
+--   Fundação 2.1.3 (forma + armação): armação desde o início, forma meia semana depois.
+--   Encunhamento (4.x.3 / 4.x.4, Rafael 08/10): começa na semana real seguinte ao FIM da alvenaria do mesmo
+--   pavimento, com 2 semanas de duração em todos os pavimentos (Rafael, 08/10). Horas e valores não mudam.
 --   Escadas (2.1.10 a 2.1.13 e as escadas de cada pavimento): só a ÚLTIMA semana da estrutura do pavimento
 --   (fundação: última semana da concretagem de blocos/tubulões, 2.1.4 do cronograma).
 --   Custo de tempo (1.1.6, grupos 17 e 18): S01 a S{N} (a obra toda, 24 meses).

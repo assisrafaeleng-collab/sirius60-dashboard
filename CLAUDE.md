@@ -64,10 +64,25 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   forma, depois concretagem. Concretagem em 2 etapas: pilares 30% e laje 70%. Escada nos dias finais.
   A forma NÃO espera a armação terminar: começa uns 3 dias (≈ meia semana) depois do início da armação e as duas
   correm juntas (sobrepostas).
+  Janelas (pedido 12; automacao/cronograma.py JANELAS_ESTRUTURA): em 8 semanas, armação 1–6, forma da metade da 1
+  até a 7, laje treliçada 5–7 (aprovada pelo Rafael, 08/10), concretagem 30% na 4 (pilares) e 70% na 8 (laje),
+  escada na 8; Reservatório (4 semanas) na mesma ordem. Material segue a janela do serviço vinculado. Fundação: só
+  a 2.1.3 do cronograma muda (forma meia semana depois da armação). Horas por atividade não mudam.
+- Encunhamento (4.x.3 / 4.x.4; Rafael, 08/10): em todos os pavimentos começa na semana real seguinte ao FIM da
+  alvenaria do mesmo pavimento e dura 2 semanas. Horas não mudam (são as da "Alvenaria <pavimento>" do cronograma).
 - Avanço físico (tela): mostrar só as linhas de SERVIÇO (MO). Linhas "Apenas Material" não aparecem no avanço nem
   recebem medição. Cada material fica VINCULADO à linha de serviço do mesmo pavimento (aço → armação; madeira/
   forma material → forma MO; concreto material → concretagem MO etc.) e herda o avanço dela no valor agregado
   (regra do material do Flats: maior entre avanço do serviço × orçado e custo comprometido limitado ao orçado).
+  Vínculo (pedido 12): automacao/vinculo_material.py → saida_v2/vinculo_material_servico.csv (49 materiais, 53
+  vínculos) e supabase/orcamento/4-vinculo-material.sql (coluna e_material + tabela orcamento_material_servico com
+  peso; não rodado). Concreto usinado vinculado à concretagem MO (no Flats ele fica fora e entra pela medição:
+  diferença decidida pelo Rafael). Material hidráulico 6.1.2 dividido entre 6.1.1 (ramais) e 6.1.1.1 (prumadas)
+  na proporção das horas (60/40; Rafael, 08/10): herda o avanço ponderado pelos pesos.
+- Medições lançadas em linha de material (Rafael, 08/10): as 5 da fundação (2.1.3, 2.1.4 e 2.1.5, de 30/08 e 13/09)
+  serão TRANSFERIDAS para a linha de serviço vinculada (aço 2.1.4 → armação 2.1.7; madeira/forma 2.1.3 → forma
+  2.1.6; concreto 2.1.5 → concretagem 2.1.8) na conversão das medições para % acumulado (fase das telas). Até lá
+  não mexer nelas.
 - Custo direto (telas e cards, Rafael 08/10; lição do Flats): comparar o custo realizado (pago + a pagar) com o
   VALOR AGREGADO (% de avanço físico da linha × valor orçado da linha; material pela regra do material), e NÃO com o
   planejado do cronograma. O planejado fica só como informação secundária ("ritmo de gasto vs cronograma").
