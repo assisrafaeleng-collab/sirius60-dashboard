@@ -13,8 +13,9 @@ export default function Dashboard({ semana, sessao }) {
   const [med, setMed] = useState(null)
 
   useEffect(() => {
-    fetch('/dados.json').then(r => r.json())
-      .then(j => setItens(j.filter(i => i.g <= 16 && !ehCustoDeTempo(i)))).catch(() => {})
+    // orçamento do banco (fonte única; antes vinha de public/dados.json)
+    fetch('/api/orcamento').then(r => r.json())
+      .then(j => Array.isArray(j) && setItens(j.filter(i => i.g <= 16 && !ehCustoDeTempo(i)))).catch(() => {})
   }, [])
   useEffect(() => {
     setMed(null)

@@ -21,8 +21,9 @@ export default function MedicaoSemanal({ semana, sessao }) {
   const chave = (eap, pav) => `${eap}|${pav}`
 
   useEffect(() => {
-    fetch('/dados.json').then(r => r.json())
-      .then(d => setItens(d.filter(i => i.g <= 16 && !ehCustoDeTempo(i))))
+    // orçamento do banco (fonte única; antes vinha de public/dados.json)
+    fetch('/api/orcamento').then(r => r.json())
+      .then(d => setItens((Array.isArray(d) ? d : []).filter(i => i.g <= 16 && !ehCustoDeTempo(i))))
   }, [])
 
   function carregar() {

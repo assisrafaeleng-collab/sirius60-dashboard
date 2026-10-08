@@ -4,10 +4,12 @@ Uso: py contas_a_pagar.py --fechamento 2026-09 [--fonseca arq.xlsx] [--dinamica 
 Saída: <saida>/contas_AAAA-MM.csv (uma linha por título e EAP) e <saida>/contas_AAAA-MM_fora.csv (o que saiu e por quê)
 
 Regras (CLAUDE.md, "Contas a pagar", decisões de 08/10/2026):
-- Fonte: os relatórios completos ("Relatório de Custo ..."). Dinâmica: não há a pagar (se aparecer título
-  em aberto, é listado e fica fora). Fonseca: em aberto no fechamento = Valor Baixado vazio/zero, ou baixa
-  DEPOIS do último dia do mês do fechamento (ex.: NF do BM4 baixada em 02/10 estava a pagar em 30/09).
-- Filtros, nesta ordem: (a) vales/adiantamentos da Sericita; (b) previsões das OCs 1787 e 1849;
+- Fonte: os relatórios completos ("Relatório de Custo ...") da Fonseca e da Dinâmica; as duas podem ter
+  título a pagar (decisão 08/10/2026, pedido 8).
+- A pagar = não estava pago no fechamento: Data de Baixa vazia OU Data de Baixa depois do último dia do mês
+  do fechamento (ex.: NF do BM4 baixada em 02/10 estava a pagar em 30/09). Não se olha o valor baixado.
+- Filtros, nesta ordem: (a) vales/adiantamentos da Sericita e decisões NAO_CUSTO (decisoes_pontuais.csv, ex.:
+  Caixa Cartões); (b) previsões das OCs 1787 e 1849;
   (c) duplicidade (mesmo CNPJ + documento já pago em qualquer fonte ou no custo gravado; mesmo CNPJ + valor
   com data a até 5 dias de um título pago; previsão de OC já faturada; BM já pago); (d) vencimento antes do
   mês do fechamento, EXCETO parcela pendente de NF com outra parcela já paga; (e) o resto = contas a pagar.
@@ -104,16 +106,18 @@ if __name__ == '__main__':
 
     fon, din = ler_fonseca(F), ler_dinamica(D)
     tudo = pd.concat([fon, din], ignore_index=True)
-    tudo['pago_no_fech'] = (tudo.baixado > 0) & tudo.baixa.notna() & (tudo.baixa <= fim)
+    # a pagar = não estava pago no fechamento: baixa vazia ou baixa depois do último dia do mês (pedido 8)
+    tudo['pago_no_fech'] = tudo.baixa.notna() & (tudo.baixa <= fim)
     gravado = custo_gravado(a.saida)
     ocs = C.ler_ocs(a.oc)
     regras = C.carregar_regras()
 
     aberto = tudo[~tudo.pago_no_fech].copy()
     aberto['motivo'] = ''
-    din_aberto = aberto[aberto.fonte == 'Dinâmica']
-    print(f'\nEm aberto: Fonseca {sum(aberto.fonte == "Fonseca")} linha(s) | Dinâmica {len(din_aberto)} linha(s)')
-    aberto.loc[aberto.fonte == 'Dinâmica', 'motivo'] = 'Dinâmica: não há contas a pagar (CLAUDE.md, 08/10) — confirmar'
+    depois = aberto[aberto.baixa.notna()]
+    print(f'\nEm aberto em {fim:%d/%m/%Y}: Fonseca {sum(aberto.fonte == "Fonseca")} linha(s) | Dinâmica {sum(aberto.fonte == "Dinâmica")} linha(s)')
+    for t in depois.itertuples():
+        print(f'  pago depois do fechamento ({t.baixa:%d/%m/%Y}): {t.fonte} {t.documento} {t.fornecedor[:34]} R$ {t.valor:,.2f}')
 
     def marcar(filtro, mask, motivo):
         m = (aberto.motivo == '') & mask
@@ -124,6 +128,13 @@ if __name__ == '__main__':
     vale = (aberto.cnpj == SERICITA) & (aberto.documento.str.upper().str.contains('ADIANT')
                                         | aberto.historico.str.contains('ADIANT') | aberto.documento.str.match(r'^0{8,}'))
     marcar('(a) vales/adiantamentos da Sericita', vale, '(a) vale/adiantamento da Sericita (nunca entra)')
+    try:
+        dp = pd.read_csv('decisoes_pontuais.csv', dtype=str).fillna('')
+        nc = set(zip(dp[dp.eap == 'NAO_CUSTO'].cnpj, dp[dp.eap == 'NAO_CUSTO'].documento))
+    except FileNotFoundError:
+        nc = set()
+    marcar('(a) decisão NAO_CUSTO', pd.Series([(c, d) in nc for c, d in zip(aberto.cnpj, aberto.documento)], index=aberto.index),
+           '(a) decisão NAO_CUSTO (decisoes_pontuais.csv)')
     # (b) OCs 1787 e 1849
     ocn = aberto.historico.str.extract(r'\bOC\s*0*(\d+)')[0].fillna('')
     marcar('(b) OCs 1787 e 1849', ocn.isin(EXCLUIR_OC), '(b) previsão da OC 1787/1849 (CLAUDE.md)')
@@ -168,13 +179,16 @@ if __name__ == '__main__':
     linhas = pd.concat([lanc, pend], ignore_index=True) if len(pend) else lanc
     assert abs(round(linhas.valor.sum(), 2) - round(entra.valor.sum(), 2)) < 0.01, 'total não fecha'
 
-    info = entra.assign(k=entra.cnpj + '|' + entra.documento).set_index('k')
+    # um título pode vir em várias linhas (Dinâmica: uma por natureza do rateio, ex. Betonita 616 material + bomba)
+    ent_k = entra.assign(k=entra.cnpj + '|' + entra.documento)
+    info = ent_k.drop_duplicates('k').set_index('k')
+    valor_titulo = ent_k.groupby('k').valor.sum().round(2)
     linhas['k'] = linhas.cnpj + '|' + linhas.documento
     linhas['seq'] = linhas.groupby('k').cumcount() + 1
     linhas['parcela'] = linhas.documento.map(parcela)
     linhas['emissao'] = linhas.k.map(info.emissao).dt.strftime('%Y-%m-%d')
     linhas['vencimento'] = linhas.k.map(info.vencimento).dt.strftime('%Y-%m-%d')
-    linhas['valor_titulo'] = linhas.k.map(info.valor)
+    linhas['valor_titulo'] = linhas.k.map(valor_titulo)
     linhas['historico'] = linhas.k.map(info.historico)
     linhas['eap'] = linhas.eap.fillna('')
     linhas['classe'] = linhas.eap.map(lambda e: 'pendente' if not e else ('indireto' if e.startswith('19.') else 'direto'))
@@ -186,13 +200,13 @@ if __name__ == '__main__':
                       pagos.assign(doc=pagos.documento)[['cnpj', 'doc', 'valor']]]).drop_duplicates()
     por_doc = hist.groupby(['cnpj', 'doc']).valor.sum().reset_index()
     al = {}
-    for t in entra.itertuples():
-        k, x = t.cnpj + '|' + t.documento, []
+    for k, t in info.iterrows():
+        x, v = [], valor_titulo[k]
         h = por_doc[por_doc.cnpj == t.cnpj]
         if not len(h):
             x.append('fornecedor novo')
-        elif t.valor > 1.5 * h.valor.mean():
-            x.append(f'valor {t.valor / h.valor.mean() - 1:.0%} acima da média do fornecedor ({C.brl(h.valor.mean())} em {len(h)} título(s))')
+        elif v > 1.5 * h.valor.mean():
+            x.append(f'valor {v / h.valor.mean() - 1:.0%} acima da média do fornecedor ({C.brl(h.valor.mean())} em {len(h)} título(s))')
         if re.search(r'PREV\.?\s*FINANC', t.historico) and pd.notna(t.emissao) and t.emissao < fim - pd.DateOffset(months=1):
             x.append(f'previsão sem nota desde {t.emissao:%d/%m/%Y}')
         al[k] = ' | '.join(x)

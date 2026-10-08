@@ -22,8 +22,9 @@ export default function AvancoFisico() {
 
   useEffect(() => {
     // só o custo direto de serviço entra no avanço físico (grupos 1-16)
-    fetch('/dados.json').then(r => r.json())
-      .then(d => setItens(d.filter(i => i.g <= GRUPO_MAX_EVM && !ehCustoDeTempo(i))))
+    // orçamento do banco (fonte única; antes vinha de public/dados.json)
+    fetch('/api/orcamento').then(r => r.json())
+      .then(d => setItens((Array.isArray(d) ? d : []).filter(i => i.g <= GRUPO_MAX_EVM && !ehCustoDeTempo(i))))
   }, [])
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())

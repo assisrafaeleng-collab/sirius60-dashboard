@@ -31,7 +31,8 @@ export default function Lancamentos({ semana, sessao }) {
   }
   const [f, setF] = useState(vazio)
 
-  useEffect(() => { fetch('/dados.json').then(r => r.json()).then(setItens) }, [])
+  // orçamento do banco (fonte única; antes vinha de public/dados.json)
+  useEffect(() => { fetch('/api/orcamento').then(r => r.json()).then(d => setItens(Array.isArray(d) ? d : [])) }, [])
 
   function carregar() {
     setLista(null)

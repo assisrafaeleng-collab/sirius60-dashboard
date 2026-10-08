@@ -33,7 +33,9 @@ export default function CustosDiretos() {
   const [aberto, setAberto] = useState({})
 
   useEffect(() => {
-    fetch('/dados.json').then(r => r.json()).then(d => setItens(d.filter(i => i.g <= 18)))
+    // orçamento do banco (fonte única; antes vinha de public/dados.json)
+    fetch('/api/orcamento').then(r => r.json())
+      .then(d => setItens((Array.isArray(d) ? d : []).filter(i => i.g <= 18)))
   }, [])
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())
