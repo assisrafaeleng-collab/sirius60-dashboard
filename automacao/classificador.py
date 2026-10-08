@@ -6,7 +6,7 @@ Três fontes, cada uma com seu critério de valor (CLAUDE.md, decisões de 07/10
   Fonseca  = Valor líquido   (relatório TOTVS da Fonseca & Lage)
   Dinâmica = Valor Baixado   (relatório TOTVS da Dinâmica)
   Rateio   = VALOR_RATEIO    (consulta SQL da Dinâmica aberta por centro de custo: só a parte do Sirius)
-Saída em saida/AAAA-MM/: lancamentos.csv, pendencias.csv, nao_custo.csv
+Saída em saida/AAAA-MM/: lancamentos.csv, pendencias.csv, nao_custo.csv, resumo.json (totais)
 """
 import sys, glob, re, os, argparse
 import pandas as pd, unicodedata
@@ -609,6 +609,21 @@ if __name__ == '__main__':
     lanc.to_csv(os.path.join(saida, 'lancamentos.csv'), index=False, encoding='utf-8-sig')
     pend.to_csv(os.path.join(saida, 'pendencias.csv'), index=False, encoding='utf-8-sig')
     nao_m.to_csv(os.path.join(saida, 'nao_custo.csv'), index=False, encoding='utf-8-sig')
+    # resumo.json: o importar.js confere a soma do lancamentos.csv com este total antes de gravar
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    soma = lambda df, f: round(float(df[df.fonte == f].valor.sum()), 2)
+    resumo = {
+        'obra_id': OBRA_ID, 'competencia': comp,
+        'gerado_em': datetime.now(ZoneInfo('America/Sao_Paulo')).strftime('%Y-%m-%d %H:%M'),
+        'lancamentos': len(lanc), 'total': round(float(lanc.valor.sum()), 2),
+        'pendencias': len(pend), 'total_pendente': round(float(pend.valor.sum()), 2),
+        'por_fonte': {f: {'classificado': soma(lanc, f), 'pendente': soma(pend, f), 'nao_custo': soma(nao_m, f)}
+                      for f in ['Fonseca', 'Dinâmica', 'Rateio']},
+    }
+    with open(os.path.join(saida, 'resumo.json'), 'w', encoding='utf-8') as fh:
+        json.dump(resumo, fh, ensure_ascii=False, indent=1)
 
     print(f'\n== {OBRA_ID} | competência {comp} | saída em {saida}')
     for f in ['Fonseca', 'Dinâmica', 'Rateio']:

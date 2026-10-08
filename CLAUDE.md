@@ -76,11 +76,11 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   - ISS da Prefeitura → 19.1.22.
   - Impressões/cópias (Copiadora Realce) → linha de projeto estrutural do grupo 19.
   - Caixa Cartões → NAO_CUSTO.
-  - Combustível da obra (Auto Posto; gasolina do carro de apoio) → linha NOVA 17.1.4 "Combustível obra",
-    verba R$ 1.000,00/mês × 24 meses = R$ 24.000,00 (Rafael, 08/10). Entra no orçamento na fase do orçamento;
-    até lá fica em automacao/ajustes_orcamento.csv.
-  - Areial Mariana (pedra de mão usada na concretagem dos fustes, no lugar de concreto) → mesma linha do
-    material de concreto dos tubulões/fundação.
+  - Combustível da obra (Auto Posto; gasolina do carro de apoio) → linha NOVA 17.1.14 "Combustível obra"
+    (17.1.4 já é "Locação de Andaime"), verba R$ 1.000,00/mês × 24 meses = R$ 24.000,00 (Rafael, 08/10).
+    Entra no orçamento oficial na fase do orçamento; até lá fica em automacao/ajustes_orcamento.csv.
+  - Areial Mariana (pedra de mão usada na concretagem dos fustes, no lugar de concreto) → 2.1.5
+    (concreto usinado, apenas material).
   - Diária mista "Concretagem blocos e limpeza dos blocos" (BM3 item 3.5, R$ 800) → 50% 2.1.8 / 50% 2.1.2.
 
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)

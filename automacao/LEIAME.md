@@ -7,7 +7,7 @@ Python pelo comando `py`. Nada aqui grava no banco: a saída é prévia em CSV.
 ## Estrutura de pastas
     classificador.py      lê as três fontes, separa o que não é custo, vincula às OCs e classifica por EAP
     gerar_regras.py       cria regras.csv e regras_parcelas.csv a partir do consolidado (aba Lançamentos)
-    gerar_orcamento.py    cria orcamento.csv a partir de ../public/dados.json
+    gerar_orcamento.py    cria orcamento.csv a partir de ../public/dados.json + ajustes_orcamento.csv
     comparar.py           compara a saída com o consolidado, por mês e EAP e título a título
     util.py               normalização de nomes, CNPJ e similaridade de itens
 
@@ -17,17 +17,26 @@ Python pelo comando `py`. Nada aqui grava no banco: a saída é prévia em CSV.
     oc/                   relatórios de Ordem de Compras
     fechamentos/          consolidado manual (referência para regras e comparação)
     medicoes/             BMs (Sericita/Giuliano)
-    saida/AAAA-MM/        lancamentos.csv, pendencias.csv, nao_custo.csv
+    saida/AAAA-MM/        lancamentos.csv, pendencias.csv, nao_custo.csv, resumo.json (totais por fonte)
 
     regras.csv            gerada pelo gerar_regras.py (não edite à mão)
     regras_manuais.csv    SUAS decisões — têm prioridade e nunca são apagadas
     regras_parcelas.csv   rateio de NFs já fechadas (parcela /02 repete a /01)
     decisoes_pontuais.csv decisão para UM título (cnpj raiz + documento → EAP com proporção, ou NAO_CUSTO)
     etapa.csv             EAP e pavimento em execução para regras ETAPA: (Fundação desde 2026-06-01)
-    orcamento.csv         orçamento por código + pavimento (346 linhas do dados.json)
+    orcamento.csv         orçamento por código + pavimento (346 linhas do dados.json + ajustes)
+    ajustes_orcamento.csv linhas decididas pelo Rafael que ainda NÃO estão no orçamento oficial
+                          (codigo_eap;grupo;descricao;pavimento;valor_orcado;origem;data)
     pedidos_aco.csv, fornecedores_recorrentes.csv   estrutura do Flats, vazios por enquanto
 
 Todos os CSVs, relatórios, BMs e a pasta saida/ estão no .gitignore. No git vão só os .py e este LEIAME.
+
+## Linhas fora do orçamento oficial (ajustes_orcamento.csv)
+- 17.1.14 "Combustível obra", Canteiro, R$ 24.000,00 (R$ 1.000/mês × 24 meses; Rafael, 08/10/2026). O Auto Posto
+  vai para ela. A 17.1.4 é "Locação de Andaime".
+- O gerar_orcamento.py soma esse arquivo ao orcamento.csv só para o classificador; o dados.json e o banco
+  NÃO têm essas linhas. **Pendente:** incluí-las no orçamento oficial (dados.json + orcamento_planejado) na
+  fase do orçamento. Até lá o importar.js aceita o código com aviso, e o dashboard mostra o realizado sem verba.
 
 ## Fontes e critério de valor (CLAUDE.md, 07/10/2026)
 | Fonte    | Arquivo                           | Valor          | Prova de pagamento |
@@ -76,6 +85,19 @@ Opções do classificador: --fonseca, --dinamica, --rateio (arquivo), --oc (past
 - decisoes_pontuais.csv com eap = NAO_CUSTO → o título sai do custo; parcela seguinte de uma NF herda a
   decisão da primeira (NAO_CUSTO não é herdado)
 
-## Gravação
-Ainda não há carga para o banco do Sirius. Quando houver, a carga substitui o mês inteiro (nunca soma por
-cima), com backup e desfazer, e não toca nos 3 lançamentos com lancado_por = 'Rafael' (CLAUDE.md).
+## Gravação no banco (../ferramentas/fechamento/importar.js)
+Pré-requisito: ../supabase/custos/1-importacoes.sql e 2-colunas-custos.sql rodados (nessa ordem).
+
+    node ferramentas/fechamento/importar.js --competencia 2026-07              # prévia: só lê o banco
+    node ferramentas/fechamento/importar.js --competencia 2026-07 --confirmar  # grava
+    node ferramentas/fechamento/importar.js --desfazer <id> [--confirmar]      # devolve o mês como estava
+
+- Uma competência por vez, lida de saida/AAAA-MM/lancamentos.csv.
+- SAI só o que é de carga: linhas do mês com importacao_id ou lancado_por = 'carga planilha' (seed 05). O resto
+  fica ("mantido"): os 3 lançamentos do Rafael (terreno, ITBI, projeto arquitetônico) e o que for lançado pela tela.
+  A prévia avisa quando um mantido parece repetir uma linha nova.
+- ENTRA com status 'pago', lancado_por 'importacao', fonte, cnpj e importacao_id. A data de pagamento vai para
+  data_emissao (a coluna da semana no site); pagamento antes de 03/08/2026 (S01) vai para 03/08/2026, mantendo a
+  competência, e o histórico guarda "[pago em dd/mm/aaaa]".
+- Recusa: soma do CSV diferente do resumo.json, competência futura, pendência no mês, EAP fora do orçamento.
+- Antes de apagar, guarda cópia das linhas que saem em importacoes.substituidos (é o que o --desfazer devolve).
