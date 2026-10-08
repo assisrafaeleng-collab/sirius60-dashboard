@@ -330,12 +330,26 @@ async function importar(db) {
     await db.from('importacoes').delete().eq('id', importacao_id)
     throw new Error(`inserção falhou (nada antigo foi apagado): ${r.error.message}`)
   }
+  // Volta o mês ao estado de antes: devolve as linhas do backup (as que já
+  // tinham saído) e só então tira as novas e o registro da importação.
+  const voltarAoAnterior = async (motivo) => {
+    const v = sai.length ? await db.from('custos_lancamentos').upsert(sai) : { error: null }
+    if (v.error)
+      throw new Error(`${motivo}; devolver o backup também falhou (${v.error.message}). As novas continuam com importacao_id ${importacao_id}; ` +
+        `o backup está em importacoes.substituidos. Rode --desfazer ${importacao_id} (prévia primeiro).`)
+    await db.from('custos_lancamentos').delete().eq('importacao_id', importacao_id)
+    await db.from('importacoes').delete().eq('id', importacao_id)
+    throw new Error(`${motivo}. O mês voltou ao estado anterior: nada foi gravado.`)
+  }
   const ids = sai.map((e) => e.id)
   if (ids.length) {
-    const d = await db.from('custos_lancamentos').delete().in('id', ids)
-    if (d.error) throw new Error(`as novas foram gravadas, mas apagar as antigas falhou: ${d.error.message}. Desfaça com --desfazer ${importacao_id}`)
+    const d = await db.from('custos_lancamentos').delete().in('id', ids).select('id')
+    if (d.error) await voltarAoAnterior(`apagar as linhas antigas falhou: ${d.error.message}`)
+    if ((d.data || []).length !== ids.length)
+      await voltarAoAnterior(`apagar as antigas removeu ${(d.data || []).length} de ${ids.length} linha(s)`)
   }
-  await db.from('importacoes').update({ status: 'ok' }).eq('id', importacao_id)
+  const ok = await db.from('importacoes').update({ status: 'ok' }).eq('id', importacao_id)
+  if (ok.error) console.log(`  ! gravado, mas marcar a importação como 'ok' falhou: ${ok.error.message}`)
   console.log(`\n  ✓ ${novas.length} lançamento(s) gravados em ${comp}; ${ids.length} substituído(s); ${mantido.length} mantido(s).`)
   console.log(`  importação: ${importacao_id}  (para desfazer: --desfazer ${importacao_id})\n`)
 }
