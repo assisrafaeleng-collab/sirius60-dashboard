@@ -1,4 +1,5 @@
 import { supabase, supabasePronto } from '../../lib/supabase'
+import { carregarCalendario } from '../../lib/calendario-servidor'
 import { senhaOk } from '../../lib/senha-servidor'
 import { OBRA, dataParaSemana } from '../../lib/constants'
 
@@ -14,6 +15,7 @@ export default async function handler(req, res) {
   }
   if (!senhaOk(req, res)) return
   if (!supabasePronto(res)) return
+  await carregarCalendario(supabase)   // semanas do calendário novo (ou o cálculo antigo, sem a tabela)
 
   if (req.method === 'GET') {
     const semana = parseInt(req.query.semana) || OBRA.prazo_semanas

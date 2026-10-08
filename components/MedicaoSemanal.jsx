@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchComSenha } from '../lib/fetch-com-senha'
+import { datasDaSemana } from '../lib/calendario'
 import { OBRA, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
          inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo } from '../lib/constants'
 
@@ -79,7 +80,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
     if (aberto === k) { setAberto(null); return }
     setAberto(k)
     setForm({
-      data: fimSemana(semana).toISOString().slice(0, 10),
+      data: datasDaSemana(semana).data_fim,
       incremento: '', hh: '', qtd: '', observacao: '',
     })
   }
@@ -351,8 +352,8 @@ export default function MedicaoSemanal({ semana, sessao }) {
                     <div className="field">
                       <label>Data do avanço</label>
                       <input type="date" value={form.data || ''}
-                             min={inicioSemana(1).toISOString().slice(0, 10)}
-                             max={fimSemana(OBRA.prazo_semanas).toISOString().slice(0, 10)}
+                             min={datasDaSemana(1).data_inicio}
+                             max={datasDaSemana(OBRA.prazo_semanas).data_fim}
                              onChange={e => setForm({ ...form, data: e.target.value })} />
                       <div className="kpi-sub" style={{ marginTop: 4 }}>
                         {dataParaSemana(form.data)

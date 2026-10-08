@@ -5,7 +5,7 @@ import MedicaoSemanal from '../components/MedicaoSemanal'
 import Lancamentos from '../components/Lancamentos'
 import Desbloqueio from '../components/Desbloqueio'
 import { esquecerSenha } from '../lib/fetch-com-senha'
-import { OBRA, semanaLabel, semanaAtualObra, mesDaSemana, inicioSemana, fimSemana } from '../lib/constants'
+import { OBRA, semanaLabel, semanaAtualObra, semanasPorMes, inicioSemana, fimSemana } from '../lib/constants'
 
 const ABAS = ['Visão geral', 'Medição semanal', 'Lançamentos']
 
@@ -16,13 +16,8 @@ export default function Home() {
   // A senha fica em lib/fetch-com-senha (sessionStorage), não no estado.
   const [sessao, setSessao] = useState(null)   // { quem }
 
-  // agrupa as 96 semanas por mês, para o seletor não virar uma lista cega
-  const grupos = []
-  for (let s = 1; s <= OBRA.prazo_semanas; s++) {
-    const m = mesDaSemana(s)
-    if (!grupos.length || grupos[grupos.length - 1].mes !== m) grupos.push({ mes: m, semanas: [] })
-    grupos[grupos.length - 1].semanas.push(s)
-  }
+  // semanas agrupadas por mês (calendário ativo), para o seletor não virar uma lista cega
+  const grupos = semanasPorMes()
 
   const fmtBR = d => d.toLocaleDateString('pt-BR')
 

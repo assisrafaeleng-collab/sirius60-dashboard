@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useEffect, useMemo, useState } from 'react'
 import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel,
-         inicioSemana, fimSemana, semanaAtualObra } from '../lib/constants'
+         inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
 
 const AZUL = '#5B9BD5'
 const ROSA = '#E91E8C'
@@ -143,8 +143,10 @@ export default function CustosIndiretos() {
                     <label>Período</label>
                     <select className="styled" value={semana}
                             onChange={e => setSemana(+e.target.value)}>
-                      {Array.from({ length: OBRA.prazo_semanas }, (_, i) => i + 1).map(s => (
-                        <option key={s} value={s}>{semanaLabel(s)}</option>
+                      {semanasPorMes().map(g => (
+                        <optgroup key={g.mes} label={g.mes}>
+                          {g.semanas.map(s => <option key={s} value={s}>{semanaLabel(s)}</option>)}
+                        </optgroup>
                       ))}
                     </select>
                   </div>

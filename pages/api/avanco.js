@@ -1,4 +1,5 @@
 import { supabase, supabasePronto } from '../../lib/supabase'
+import { carregarCalendario } from '../../lib/calendario-servidor'
 import { OBRA } from '../../lib/constants'
 
 // Avanço físico medido, acumulado até a semana pedida.
@@ -7,6 +8,7 @@ import { OBRA } from '../../lib/constants'
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
   if (!supabasePronto(res)) return
+  await carregarCalendario(supabase)   // semanas do calendário novo (ou o cálculo antigo, sem a tabela)
   const semana = Math.min(Math.max(parseInt(req.query.semana) || OBRA.prazo_semanas, 1),
                           OBRA.prazo_semanas)
   try {

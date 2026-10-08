@@ -126,7 +126,9 @@ FIXO = {
     '14.1.5': '14.1.5', '14.1.12': '14.1.5', **{f'14.1.{i}': '14.1.1' for i in (1, 2, 3, 4, 6, 7, 8, 9, 10, 11)},
     '15.1.1': '15.1.1', '15.1.2': '15.1.2', '15.1.3': '15.1.3', '15.1.4': '15.1.4',
 }
-SUGERIDO = {'2.1.10': '2.1.5', '2.1.11': '2.1.5', '2.1.12': '2.1.5', '2.1.13': '2.1.5'}   # escada da fundação: pelas semanas
+# Escadas (Rafael, 08/10): na ÚLTIMA semana da atividade de estrutura do pavimento. Fundação: a estrutura da fundação
+# é a concretagem de blocos, tubulões e vigas (2.1.4 do cronograma).
+ESTRUTURA_FUNDACAO = '2.1.4'
 
 
 def ligar(o):
@@ -136,8 +138,11 @@ def ligar(o):
         return '', 'custo de tempo: fora do avanço'
     if eap in FIXO:
         return FIXO[eap], 'serviço'
-    if eap in SUGERIDO:
-        return SUGERIDO[eap], 'SUGERIDO (escada da fundação sem atividade própria; mesmas semanas do piso 2.1.5)'
+    if 'ESCADA' in d and g in (2, 3):
+        if g == 2:
+            return ESTRUTURA_FUNDACAO, 'ESCADA: última semana da estrutura da fundação'
+        if pav in PAV_EST:
+            return PAV_EST[pav], 'ESCADA: última semana da estrutura do pavimento'
     if g == 3:
         if 'PISO POLIDO' in d:
             return '11.1.6', 'piso polido (cronograma: "junto à laje de cada pavimento")'
@@ -156,6 +161,7 @@ if __name__ == '__main__':
     ap.add_argument('--cronograma', default=None)
     ap.add_argument('--saida', default='saida_v2')
     ap.add_argument('--hoje', default=None)
+    ap.add_argument('--indiretos', default=None, help='exportação de custos_indiretos_planejados (id, codigo_eap, categoria, recorrente, semana_desembolso, semana_fim, valor_total)')
     a = ap.parse_args()
     arq = a.cronograma or [f for f in glob.glob('entrada/cronograma/*Final*.xlsx') if not os.path.basename(f).startswith('~$')][0]
     print('cronograma:', arq)
@@ -169,9 +175,12 @@ if __name__ == '__main__':
     info = crono.set_index('atividade')
     orc['descricao_atividade'] = orc.atividade.map(info.descricao)
     orc['ini_crono'] = orc.atividade.map(info.ini); orc['fim_crono'] = orc.atividade.map(info.fim)
+    esc = orc.regra.str.startswith('ESCADA')
+    orc.loc[esc, 'ini_crono'] = orc.loc[esc, 'fim_crono']          # escada: só a última semana da atividade
     reais = {r.atividade: intervalo_real(cal, r.ini, r.fim) for r in crono.itertuples()}
-    orc['semana_inicio_real'] = orc.atividade.map(lambda x: reais[x][0] if x in reais else None)
-    orc['semana_fim_real'] = orc.atividade.map(lambda x: reais[x][1] if x in reais else None)
+    ult = {r.atividade: intervalo_real(cal, r.fim, r.fim) for r in crono.itertuples()}
+    orc['semana_inicio_real'] = [(ult if e else reais)[x][0] if x in reais else None for x, e in zip(orc.atividade, esc)]
+    orc['semana_fim_real'] = [(ult if e else reais)[x][1] if x in reais else None for x, e in zip(orc.atividade, esc)]
     orc.to_csv(os.path.join(a.saida, 'eap_cronograma.csv'), index=False, encoding='utf-8-sig')
 
     # 2) atividades: horas do cronograma × horas e valor das linhas ligadas
@@ -183,10 +192,19 @@ if __name__ == '__main__':
 
     # 3) planejado por dia → por semana real
     h_dia, v_dia = {}, {}
+    # escada: a parte da atividade que é escada (pela proporção das horas do banco; valor exato das linhas) vai
+    # inteira para a última semana; o resto se espalha igual por todas as semanas da atividade
+    esc_h = lig[lig.regra.str.startswith('ESCADA')].groupby('atividade').hh.sum()
+    esc_v = lig[lig.regra.str.startswith('ESCADA')].groupby('atividade').preco_total.sum()
     for r in crono.itertuples():
+        fr = (esc_h.get(r.atividade, 0.0) / r.hh_banco) if r.hh_banco else 0.0
+        h_esc, v_esc = r.horas * fr, esc_v.get(r.atividade, 0.0)
         for k in range(r.ini, r.fim + 1):
-            espalhar(cal, k, r.horas / r.dur, h_dia)
-            espalhar(cal, k, r.valor / r.dur, v_dia)
+            espalhar(cal, k, (r.horas - h_esc) / r.dur, h_dia)
+            espalhar(cal, k, (r.valor - v_esc) / r.dur, v_dia)
+        if h_esc or v_esc:
+            espalhar(cal, r.fim, h_esc, h_dia)
+            espalhar(cal, r.fim, v_esc, v_dia)
     H, V = sum(h_dia.values()), sum(v_dia.values())
     cs = cal.copy()
     cs['horas'] = [sum(h for d, h in h_dia.items() if x.data_inicio <= d <= x.data_fim) for x in cal.itertuples()]
@@ -206,8 +224,8 @@ if __name__ == '__main__':
     sh = cal[(cal.data_inicio <= hoje) & (cal.data_fim >= hoje)].iloc[0]
     print(f'  hoje {hoje:%d/%m/%Y} = S{sh.semana_numero:02d} ({sh.data_inicio:%d/%m}–{sh.data_fim:%d/%m}, {sh.semana_do_mes}ª de {sh.competencia})')
     print(f'\nLIGAÇÃO: {len(orc)} linhas do orçamento | ligadas {len(lig)} | custo de tempo {sum(orc.regra.str.startswith("custo de tempo"))}'
-          f' | sugeridas {sum(orc.regra.str.startswith("SUGERIDO"))} | sem atividade {sum(orc.regra == "SEM ATIVIDADE")}')
-    for r in orc[orc.regra.isin(['SEM ATIVIDADE']) | orc.regra.str.startswith('SUGERIDO')].itertuples():
+          f' | escadas {int(esc.sum())} | sem atividade {sum(orc.regra == "SEM ATIVIDADE")}')
+    for r in orc[orc.regra.isin(['SEM ATIVIDADE']) | esc].itertuples():
         print(f'  {r.codigo_eap:8s} {r.pavimento:12s} {str(r.descricao)[:45]:45s} hh {r.hh:7.1f} → {r.atividade or "—"} {r.regra[:40]}')
     sem_linha = crono[crono.linhas == 0]
     print('  atividades sem linha do orçamento:', ', '.join(f'{r.atividade} {r.descricao[:30]} ({r.horas} h)' for r in sem_linha.itertuples()) or 'nenhuma')
@@ -229,3 +247,26 @@ if __name__ == '__main__':
         print(f'  fim de {m}: {x.pct_horas_acum:.2f}% das horas | R$ {x.valor_acum:,.2f} ({x.pct_valor_acum:.2f}% do valor)')
     ate = sum(h for dd, h in h_dia.items() if dd <= hoje) / H * 100
     print(f'  hoje {hoje:%d/%m/%Y}: {ate:.2f}% das horas (planejado até o dia)')
+
+    # 4) indiretos: recorrentes diluídos na obra toda; pontuais pela DATA da semana antiga (7 dias corridos desde S01)
+    if a.indiretos:
+        ind = pd.read_csv(a.indiretos)
+        def data_antiga(n, fim=False):
+            return INICIO + timedelta(days=7 * (int(n) - 1) + (6 if fim else 0))
+        def semana_real(dt):
+            return int(cal[(cal.data_inicio <= dt) & (cal.data_fim >= dt)].semana_numero.iloc[0])
+        out = []
+        for r in ind.itertuples():
+            if str(r.recorrente).lower() == 'true':
+                ini, fim, como = 1, len(cal), 'diluído na obra toda'
+            else:
+                ini, fim = semana_real(data_antiga(r.semana_desembolso)), semana_real(min(data_antiga(r.semana_fim, True), FIM))
+                como = f'{data_antiga(r.semana_desembolso):%d/%m} a {data_antiga(r.semana_fim, True):%d/%m}'
+            out.append(dict(id=r.id, codigo_eap=r.codigo_eap, categoria=r.categoria, recorrente=r.recorrente, valor_total=r.valor_total,
+                            semana_antiga_ini=r.semana_desembolso, semana_antiga_fim=r.semana_fim, semana_nova_ini=ini, semana_nova_fim=fim, como=como))
+        ix = pd.DataFrame(out)
+        ix.to_csv(os.path.join(a.saida, 'indiretos_semanas.csv'), index=False, encoding='utf-8-sig')
+        print("\nINDIRETOS (semana antiga → nova):")
+        for r in ix.itertuples():
+            print(f'  {r.codigo_eap:8s} {r.categoria[:42]:42s} {"recorrente" if str(r.recorrente).lower()=="true" else "pontual   "}'
+                  f' S{r.semana_antiga_ini}-{r.semana_antiga_fim} → S{r.semana_nova_ini}-{r.semana_nova_fim} ({r.como})')

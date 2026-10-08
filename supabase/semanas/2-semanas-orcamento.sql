@@ -1,36 +1,47 @@
 -- =====================================================================
--- Sirius 60 — SEMANAS, PASSO 2: semana_inicio/semana_fim do orçamento no calendário real (gerado por gerar_sql_semanas.py)
--- Rodar DEPOIS do 1-calendario.sql e do código do site que usa o calendário novo. Desfazer: 2-semanas-orcamento-desfazer.sql
+-- Sirius 60 — SEMANAS, PASSO 2: semanas do orçamento e dos indiretos no calendário real (gerado por gerar_sql_semanas.py)
+-- Rodar DEPOIS do 3-pilotis-subsolo.sql (orçamento) e do 1-calendario.sql. Desfazer: 2-semanas-orcamento-desfazer.sql
 --
--- Cada linha do orçamento ganha as semanas REAIS (S01..S117) da atividade do cronograma a que está ligada
--- (automacao/saida_v2/eap_cronograma.csv): da semana real que contém o início da atividade até a que contém o fim.
--- Custo de tempo (1.1.6, grupos 17 e 18): S01 a S117 (a obra toda, 24 meses).
--- Escada da fundação (2.1.10 a 2.1.13): ligação SUGERIDA ao piso da fundação (2.1.5 do cronograma); confirmar.
--- Antes de mudar: backup (id, código, pavimento, semanas atuais) em orcamento_semanas_bkp_20261008. Preço, horas e códigos não mudam.
--- custos_indiretos_planejados (semana_desembolso/semana_fim) NÃO é tratado aqui.
+-- orcamento_planejado: cada linha ganha as semanas REAIS (S01..S117) da atividade do cronograma a que está ligada
+--   (automacao/saida_v2/eap_cronograma.csv): da semana real que contém o início da atividade até a que contém o fim.
+--   Escadas (2.1.10 a 2.1.13 e as escadas de cada pavimento): só a ÚLTIMA semana da estrutura do pavimento
+--   (fundação: última semana da concretagem de blocos/tubulões, 2.1.4 do cronograma).
+--   Custo de tempo (1.1.6, grupos 17 e 18): S01 a S117 (a obra toda, 24 meses).
+--   A "semana atual" esperada de cada linha é a de DEPOIS do 3-pilotis-subsolo.sql (4.1.x/4.2.x trocadas).
+-- custos_indiretos_planejados: recorrentes diluídos de S01 a S117; pontuais nas semanas novas que contêm as datas
+--   das semanas antigas (7 dias corridos desde 03/08/2026).
+-- Antes de mudar: backups orcamento_semanas_bkp_20261008 e indiretos_semanas_bkp_20261008. Preço, horas e códigos não mudam.
 -- =====================================================================
 begin;
 
 do $$
-declare n int; total numeric;
+declare n int;
 begin
   if to_regclass('public.calendario_semanas') is null then
     raise exception 'rode antes o 1-calendario.sql';
   end if;
-  if to_regclass('public.orcamento_semanas_bkp_20261008') is not null then
-    raise exception 'orcamento_semanas_bkp_20261008 já existe: este arquivo já foi rodado?';
+  if to_regclass('public.orcamento_semanas_bkp_20261008') is not null or to_regclass('public.indiretos_semanas_bkp_20261008') is not null then
+    raise exception 'backup de semanas já existe: este arquivo já foi rodado?';
   end if;
-  select count(*), sum(preco_total) into n, total from public.orcamento_planejado where obra_id = 'sirius60';
+  select count(*) into n from public.orcamento_planejado where obra_id = 'sirius60';
   if n <> 334 then raise exception 'orcamento_planejado tem % linhas (esperado 334): nada foi feito', n; end if;
+  if not exists (select 1 from public.orcamento_planejado where id = 747 and codigo_eap = '4.1.1' and preco_total = 13901.95) then
+    raise exception 'rode antes o supabase/orcamento/3-pilotis-subsolo.sql (4.1.1 Pilotis ainda não tem 143,26 m²)';
+  end if;
 end $$;
 
 create table public.orcamento_semanas_bkp_20261008 as
   select id, codigo_eap, pavimento, semana_inicio, semana_fim
     from public.orcamento_planejado where obra_id = 'sirius60';
+create table public.indiretos_semanas_bkp_20261008 as
+  select id, codigo_eap, semana_desembolso, semana_fim
+    from public.custos_indiretos_planejados where obra_id = 'sirius60';
 alter table public.orcamento_semanas_bkp_20261008 enable row level security;
+alter table public.indiretos_semanas_bkp_20261008 enable row level security;
 revoke all on public.orcamento_semanas_bkp_20261008 from anon, authenticated;
+revoke all on public.indiretos_semanas_bkp_20261008 from anon, authenticated;
 
--- (id, código, semana_inicio atual, semana_fim atual, semana_inicio nova, semana_fim nova)
+-- orçamento: (id, código, semana_inicio atual, semana_fim atual, semana_inicio nova, semana_fim nova)
 update public.orcamento_planejado as o
    set semana_inicio = v.ini_novo, semana_fim = v.fim_novo
   from (values
@@ -49,10 +60,10 @@ update public.orcamento_planejado as o
   (673, '2.1.7', 4, 13, 4, 15),
   (674, '2.1.8', 6, 14, 6, 16),
   (675, '2.1.9', 9, 13, 10, 15),
-  (676, '2.1.10', 9, 13, 10, 15),  -- SUGERIDO (escada da fundação sem atividade própria; mesmas semanas do 
-  (677, '2.1.11', 9, 13, 10, 15),  -- SUGERIDO (escada da fundação sem atividade própria; mesmas semanas do 
-  (678, '2.1.12', 9, 13, 10, 15),  -- SUGERIDO (escada da fundação sem atividade própria; mesmas semanas do 
-  (679, '2.1.13', 9, 13, 10, 15),  -- SUGERIDO (escada da fundação sem atividade própria; mesmas semanas do 
+  (676, '2.1.10', 9, 13, 15, 16),  -- ESCADA: última semana da estrutura da fundação
+  (677, '2.1.11', 9, 13, 15, 16),  -- ESCADA: última semana da estrutura da fundação
+  (678, '2.1.12', 9, 13, 15, 16),  -- ESCADA: última semana da estrutura da fundação
+  (679, '2.1.13', 9, 13, 15, 16),  -- ESCADA: última semana da estrutura da fundação
   (680, '2.1.14', 10, 19, 11, 22),
   (681, '3.1.1', 17, 24, 19, 28),
   (682, '3.1.2', 17, 24, 19, 28),
@@ -61,10 +72,10 @@ update public.orcamento_planejado as o
   (685, '3.1.5', 17, 24, 19, 28),
   (686, '3.1.6', 17, 24, 19, 28),
   (687, '3.1.7', 13, 16, 15, 18),
-  (688, '3.1.8', 17, 24, 19, 28),
-  (689, '3.1.9', 17, 24, 19, 28),
-  (690, '3.1.10', 17, 24, 19, 28),
-  (691, '3.1.11', 17, 24, 19, 28),
+  (688, '3.1.8', 17, 24, 27, 28),  -- ESCADA: última semana da estrutura do pavimento
+  (689, '3.1.9', 17, 24, 27, 28),  -- ESCADA: última semana da estrutura do pavimento
+  (690, '3.1.10', 17, 24, 27, 28),  -- ESCADA: última semana da estrutura do pavimento
+  (691, '3.1.11', 17, 24, 27, 28),  -- ESCADA: última semana da estrutura do pavimento
   (692, '3.1.12', 17, 24, 19, 28),
   (693, '3.2.1', 25, 32, 29, 37),
   (694, '3.2.2', 25, 32, 29, 37),
@@ -73,10 +84,10 @@ update public.orcamento_planejado as o
   (697, '3.2.5', 25, 32, 29, 37),
   (698, '3.2.6', 25, 32, 29, 37),
   (699, '3.2.7', 13, 16, 15, 18),
-  (700, '3.2.8', 25, 32, 29, 37),
-  (701, '3.2.9', 25, 32, 29, 37),
-  (702, '3.2.10', 25, 32, 29, 37),
-  (703, '3.2.11', 25, 32, 29, 37),
+  (700, '3.2.8', 25, 32, 36, 37),  -- ESCADA: última semana da estrutura do pavimento
+  (701, '3.2.9', 25, 32, 36, 37),  -- ESCADA: última semana da estrutura do pavimento
+  (702, '3.2.10', 25, 32, 36, 37),  -- ESCADA: última semana da estrutura do pavimento
+  (703, '3.2.11', 25, 32, 36, 37),  -- ESCADA: última semana da estrutura do pavimento
   (704, '3.2.12', 25, 32, 29, 37),
   (705, '3.3.1', 33, 40, 38, 47),
   (706, '3.3.2', 33, 40, 38, 47),
@@ -84,10 +95,10 @@ update public.orcamento_planejado as o
   (708, '3.3.4', 33, 40, 38, 47),
   (709, '3.3.5', 33, 40, 38, 47),
   (710, '3.3.6', 33, 40, 38, 47),
-  (711, '3.3.7', 33, 40, 38, 47),
-  (712, '3.3.8', 33, 40, 38, 47),
-  (713, '3.3.9', 33, 40, 38, 47),
-  (714, '3.3.10', 33, 40, 38, 47),
+  (711, '3.3.7', 33, 40, 47, 47),  -- ESCADA: última semana da estrutura do pavimento
+  (712, '3.3.8', 33, 40, 47, 47),  -- ESCADA: última semana da estrutura do pavimento
+  (713, '3.3.9', 33, 40, 47, 47),  -- ESCADA: última semana da estrutura do pavimento
+  (714, '3.3.10', 33, 40, 47, 47),  -- ESCADA: última semana da estrutura do pavimento
   (715, '3.3.11', 33, 40, 38, 47),
   (716, '3.4.1', 41, 48, 48, 57),
   (717, '3.4.2', 41, 48, 48, 57),
@@ -95,10 +106,10 @@ update public.orcamento_planejado as o
   (719, '3.4.4', 41, 48, 48, 57),
   (720, '3.4.5', 41, 48, 48, 57),
   (721, '3.4.6', 41, 48, 48, 57),
-  (722, '3.4.7', 41, 48, 48, 57),
-  (723, '3.4.8', 41, 48, 48, 57),
-  (724, '3.4.9', 41, 48, 48, 57),
-  (725, '3.4.10', 41, 48, 48, 57),
+  (722, '3.4.7', 41, 48, 56, 57),  -- ESCADA: última semana da estrutura do pavimento
+  (723, '3.4.8', 41, 48, 56, 57),  -- ESCADA: última semana da estrutura do pavimento
+  (724, '3.4.9', 41, 48, 56, 57),  -- ESCADA: última semana da estrutura do pavimento
+  (725, '3.4.10', 41, 48, 56, 57),  -- ESCADA: última semana da estrutura do pavimento
   (726, '3.4.11', 41, 48, 48, 57),
   (727, '3.5.1', 49, 56, 58, 67),
   (728, '3.5.2', 49, 56, 58, 67),
@@ -120,12 +131,12 @@ update public.orcamento_planejado as o
   (744, '3.7.4', 65, 68, 78, 82),
   (745, '3.7.5', 65, 68, 78, 82),
   (746, '3.7.6', 65, 68, 78, 82),
-  (747, '4.1.1', 29, 32, 33, 37),
-  (748, '4.1.2', 29, 32, 33, 37),
-  (749, '4.1.3', 29, 32, 33, 37),
-  (750, '4.2.1', 21, 23, 24, 27),
-  (751, '4.2.2', 21, 23, 24, 27),
-  (752, '4.2.3', 24, 27, 24, 27),
+  (747, '4.1.1', 21, 23, 33, 37),
+  (748, '4.1.2', 21, 23, 33, 37),
+  (749, '4.1.3', 24, 27, 33, 37),
+  (750, '4.2.1', 29, 32, 24, 27),
+  (751, '4.2.2', 29, 32, 24, 27),
+  (752, '4.2.3', 29, 32, 24, 27),
   (753, '4.3.1', 37, 44, 43, 52),
   (754, '4.3.2', 37, 44, 43, 52),
   (755, '4.3.3', 37, 44, 43, 52),
@@ -372,21 +383,52 @@ update public.orcamento_planejado as o
  where o.id = v.id and o.obra_id = 'sirius60' and o.codigo_eap = v.codigo
    and o.semana_inicio = v.ini_atual and o.semana_fim = v.fim_atual;
 
+-- indiretos: (id, código, semana antiga início, fim, semana nova início, fim)
+update public.custos_indiretos_planejados as i
+   set semana_desembolso = v.ini_novo, semana_fim = v.fim_novo
+  from (values
+  (1, '19.1.1', 1, 8, 1, 8),  -- pontual: 03/08 a 27/09
+  (2, '19.1.4', 1, 8, 1, 8),  -- pontual: 03/08 a 27/09
+  (3, '19.1.6', 1, 8, 1, 8),  -- pontual: 03/08 a 27/09
+  (4, '19.1.10', 1, 4, 1, 4),  -- pontual: 03/08 a 30/08
+  (5, '19.1.12', 1, 4, 1, 4),  -- pontual: 03/08 a 30/08
+  (6, '19.1.13', 1, 4, 1, 4),  -- pontual: 03/08 a 30/08
+  (7, '19.1.14', 1, 4, 1, 4),  -- pontual: 03/08 a 30/08
+  (8, '19.1.18', 1, 96, 1, 117),  -- recorrente: diluído
+  (9, '19.1.20', 1, 4, 1, 4),  -- pontual: 03/08 a 30/08
+  (10, '19.1.21', 1, 96, 1, 117),  -- recorrente: diluído
+  (11, '19.1.22', 1, 4, 1, 4),  -- pontual: 03/08 a 30/08
+  (12, '19.1.23', 1, 96, 1, 117),  -- recorrente: diluído
+  (13, '19.1.24', 1, 96, 1, 117)  -- recorrente: diluído
+  ) as v(id, codigo, ini_atual, fim_atual, ini_novo, fim_novo)
+ where i.id = v.id and i.obra_id = 'sirius60' and i.codigo_eap = v.codigo
+   and i.semana_desembolso = v.ini_atual and i.semana_fim = v.fim_atual;
+
 do $$
-declare n int; fora int;
+declare n int; m int; fora int;
 begin
   select count(*) into n from public.orcamento_planejado o join public.orcamento_semanas_bkp_20261008 b using (id)
    where (o.semana_inicio, o.semana_fim) is distinct from (b.semana_inicio, b.semana_fim);
+  if n <> 333 then
+    raise exception 'orçamento: % linha(s) mudaram (esperado 333): nada foi gravado', n;
+  end if;
+  select count(*) into m from public.custos_indiretos_planejados where obra_id = 'sirius60' and semana_fim = 117;
+  if m <> 4 then
+    raise exception 'indiretos: % recorrente(s) até S117 (esperado 4): nada foi gravado', m;
+  end if;
   select count(*) into fora from public.orcamento_planejado
    where obra_id = 'sirius60' and (semana_inicio < 1 or semana_fim > 117 or semana_fim < semana_inicio);
   if fora > 0 then raise exception '% linha(s) com semanas fora de S01..S117: nada foi gravado', fora; end if;
-  raise notice '% linha(s) com semanas alteradas', n;
 end $$;
 
 commit;
 
--- Conferência: semanas por grupo (antes × depois)
+-- Conferência 1: semanas por grupo (antes × depois)
 select o.grupo_num, min(b.semana_inicio) as ini_antes, max(b.semana_fim) as fim_antes,
        min(o.semana_inicio) as ini_depois, max(o.semana_fim) as fim_depois, count(*) as linhas
   from public.orcamento_planejado o join public.orcamento_semanas_bkp_20261008 b using (id)
  where o.obra_id = 'sirius60' group by o.grupo_num order by o.grupo_num;
+-- Conferência 2: indiretos (antes × depois)
+select i.codigo_eap, i.categoria, i.recorrente, b.semana_desembolso as ini_antes, b.semana_fim as fim_antes,
+       i.semana_desembolso as ini_depois, i.semana_fim as fim_depois
+  from public.custos_indiretos_planejados i join public.indiretos_semanas_bkp_20261008 b using (id) order by i.codigo_eap;

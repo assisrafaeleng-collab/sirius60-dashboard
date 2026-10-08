@@ -1,7 +1,8 @@
 import { supabase, supabasePronto } from '../../lib/supabase'
-import { OBRA, GRUPO_MAX_EVM, PREFIXOS_PRE_OBRA, EAP_CUSTO_DE_TEMPO, dataParaSemana, inicioSemana, fimSemana } from '../../lib/constants'
+import { carregarCalendario } from '../../lib/calendario-servidor'
+import { OBRA, GRUPO_MAX_EVM, PREFIXOS_PRE_OBRA, EAP_CUSTO_DE_TEMPO, dataParaSemana, inicioSemana, fimSemana, ehCustoDeTempo } from '../../lib/constants'
+import { calendario, planejadoDoCalendario } from '../../lib/calendario'
 
-const PRAZO = OBRA.prazo_semanas   // 96
 
 // Um lançamento vira semana pela data da nota (dd/mm/aaaa).
 // Sem data_emissao, cai na competência.
@@ -12,6 +13,8 @@ function semanaDoLancamento(l) {
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
   if (!supabasePronto(res)) return
+  await carregarCalendario(supabase)   // semanas do calendário novo (ou o cálculo antigo, sem a tabela)
+  const PRAZO = OBRA.prazo_semanas     // 96 no cálculo antigo; o número de semanas do calendario_semanas
 
   const obra_id = req.query.obra_id || OBRA.id
   const semLimite = Math.min(Math.max(parseInt(req.query.semana) || PRAZO, 1), PRAZO)
@@ -32,8 +35,13 @@ export default async function handler(req, res) {
       if (r.error) throw new Error(r.error.message)
     }
 
-    const finPlan = finPlanRes.data || []
-    const fisPlan = fisPlanRes.data || []
+    // Planejado: com o calendário novo (curva_s_semanal_planejada), físico pelas horas do cronograma e financeiro
+    // pela curva + custo de tempo e indiretos espalhados pelos dias; sem ele, as views antigas, como antes.
+    const novo = calendario().curva
+      ? planejadoDoCalendario(dirPlanRes.data || [], indPlanRes.data || [], (i) => ehCustoDeTempo(i))
+      : null
+    const finPlan = novo ? novo.finPlan : (finPlanRes.data || [])
+    const fisPlan = novo ? novo.fisPlan : (fisPlanRes.data || [])
     const lancamentos = custosRes.data || []
     const horas = horasRes.data || []
     const avanco = avancoRes.data || []
