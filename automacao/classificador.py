@@ -86,7 +86,13 @@ def ler_totvs(path, fonte):
     t = t[~sem_liq]
     p = pago(t)
     liquido = pd.to_numeric(t['liquido'], errors='coerce').astype(float)
-    if fonte == 'Dinâmica':
+    if fonte == 'Fonseca' and 'pago' not in t and 'baixado' in t:
+        # "Relatório de Custo Fonseca e Lage" (sem VALOR PAGO; decisão 08/10/2026): o custo é o Valor Baixado.
+        # A soma das linhas tem de fechar com o TOTAL do relatório também nessa coluna.
+        conferir_total(padronizar(pd.read_excel(path), origem=path), 'baixado', path)
+        baixado = pd.to_numeric(t['baixado'], errors='coerce').fillna(0)
+        valor = baixado.where(p, liquido)
+    elif fonte == 'Dinâmica':
         # Dinâmica: o custo é o Valor Baixado; título sem baixa fica com o líquido só para a lista de não custo
         baixado = pd.to_numeric(t['baixado'], errors='coerce').fillna(0)
         valor = baixado.where(p, liquido)
@@ -127,9 +133,9 @@ def pago(t):
 #  - título dividido com outras obras que também está no relatório da Dinâmica: entra pelo rateio,
 #    e a linha da Dinâmica (valor cheio) sai do custo.
 SIN_RATEIO = {
-    'ref': ['ref_lancto'], 'cnpj': ['cpf_cnpj_cliente_fornecedor'], 'emissao': ['_emissao'],
+    'ref': ['ref_lancto'], 'cnpj': ['cpf_cnpj_cliente_fornecedor'], 'emissao': ['_emissao', 'data_emissao'],
     'nome': ['nomefantasia_cliente_fornecedor'], 'original': ['valororiginal'], 'baixado': ['valorbaixa'],
-    'vencimento': ['vencimento'], 'baixa': ['data_baixa'], 'status': ['status_lancto'],
+    'vencimento': ['vencimento', 'data_vencimento'], 'baixa': ['data_baixa'], 'status': ['status_lancto'],
     'cc': ['centrocusto_rateio'], 'documento': ['numero_documento'], 'historico': ['historico'],
     'natureza': ['descricaonatureza_rateio'], 'pagar_receber': ['pagar_receber'], 'rateio': ['valor_rateio'],
 }
@@ -158,6 +164,24 @@ def ler_rateio(path):
                             & (pd.to_numeric(r['baixado'], errors='coerce').fillna(0) <= 0)),
     }).reset_index(drop=True)
 
+def ler_dinamica_completo(path):
+    """'Relatório de Custo DINAMICA' (decisão 08/10/2026): mesmo layout da consulta SQL, todas as obras.
+    Do Sirius vale o VALOR_RATEIO; substitui o relatório da Dinâmica e o SQL (não somar os dois).
+    A soma das linhas do Sirius tem de fechar ao centavo com a linha de TOTAL do relatório."""
+    bruto = pd.read_excel(path, dtype={'REF_LANCTO': str})
+    tot = bruto[bruto['REF_LANCTO'].isna() & pd.to_numeric(bruto['VALOR_RATEIO'], errors='coerce').notna()]
+    r = ler_rateio(path)
+    if len(tot):
+        # o TOTAL vem com 4 casas: compara com a soma sem arredondar das linhas do Sirius
+        b = padronizar(bruto, SIN_RATEIO, SIN_RATEIO.keys(), path)
+        b = b[e_sirius(b['cc']) & (b['pagar_receber'].astype(str).str.upper() == 'PAGAR')]
+        total, linhas = float(tot['VALOR_RATEIO'].iloc[-1]), float(pd.to_numeric(b['rateio']).sum())
+        if abs(total - linhas) >= 0.005:
+            raise SystemExit(f'ERRO: {os.path.basename(path)} — soma do Sirius ({linhas:,.4f}) não fecha com o TOTAL ({total:,.4f})')
+    else:
+        print(f'AVISO: {os.path.basename(path)} sem linha de total — soma não conferida')
+    return r.assign(fonte='Dinâmica')
+
 def cruzar_rateio(din, rat):
     """Marca o que sai do custo por já estar contado em outra fonte (ver ler_rateio). Devolve din, rat com 'cruzamento'."""
     din, rat = din.copy(), rat.copy()
@@ -174,6 +198,8 @@ def cruzar_rateio(din, rat):
 # não são custo (decisão out/26): previsão financeira de OC ainda sem NF e aporte de sócio.
 # Saem da classificação e vão para nao_custo.csv (base do futuro card de contas a pagar).
 NAO_CUSTO = {'previsão financeira': r'PREV\.?\s*FINANC', 'aporte': r'\bAPORTE\b'}
+# pelo número do documento; preenchido no modo --completo (ver __main__)
+NAO_CUSTO_DOC = {}
 
 def separar_nao_custo(tit):
     tipo = pd.Series('', index=tit.index)
@@ -182,6 +208,8 @@ def separar_nao_custo(tit):
         tipo[tit.cruzamento.fillna('') != ''] = tit.cruzamento.fillna('')
     for nome, padrao in NAO_CUSTO.items():
         tipo[(tipo == '') & tit.historico.str.contains(padrao, regex=True)] = nome
+    for nome, padrao in NAO_CUSTO_DOC.items():
+        tipo[(tipo == '') & tit.documento.astype(str).str.upper().str.contains(padrao, regex=True)] = nome
     # título que você marcou em decisoes_pontuais.csv com eap = NAO_CUSTO (ex.: NF já paga por adiantamento)
     try:
         dp = pd.read_csv('decisoes_pontuais.csv', dtype={'cnpj': str, 'documento': str, 'eap': str}).fillna('')
@@ -207,8 +235,13 @@ SIN_OC = {
 def ler_ocs(pasta):
     dfs = []
     for f in sorted(glob.glob(f'{pasta}/*.xls*')):
-        o = padronizar(pd.read_excel(f, engine='xlrd' if f.lower().endswith('.xls') else None),
-                       SIN_OC, ['oc', 'cnpj', 'item', 'total_item', 'nf'], f)
+        o = pd.read_excel(f, engine='xlrd' if f.lower().endswith('.xls') else None)
+        # relatório de OC de agosto/26: duas colunas "Nº OC" e a primeira vazia (o pandas chama a 2ª de "Nº OC.1")
+        base = lambda c: re.sub(r'\.\d+$', '', str(c))
+        gemeas = [c for c in o.columns if sum(base(x) == base(c) for x in o.columns) > 1]
+        o = o.drop(columns=[c for c in gemeas if o[c].isna().all()])
+        o.columns = [base(c) if base(c) not in o.columns else c for c in map(str, o.columns)]
+        o = padronizar(o, SIN_OC, ['oc', 'cnpj', 'item', 'total_item', 'nf'], f)
         if 'cc' in o:
             o = o[e_sirius(o['cc'])]
         else:
@@ -484,6 +517,12 @@ def mais_recente(pasta):
         raise SystemExit(f'ERRO: nenhum relatório em {pasta}')
     return max(arqs, key=os.path.getmtime)
 
+def mais_recente_padrao(pasta, padrao):
+    arqs = [f for f in glob.glob(os.path.join(pasta, padrao + '.xls*')) if not os.path.basename(f).startswith('~$')]
+    if not arqs:
+        raise SystemExit(f'ERRO: nenhum "{padrao}" em {pasta}')
+    return max(arqs, key=os.path.getmtime)
+
 def doc_base(d):
     m = re.match(r'^0*(\d+)/\d+$', str(d).strip())
     return m.group(1) if m else ''
@@ -522,24 +561,40 @@ if __name__ == '__main__':
     ap.add_argument('--dinamica', help='relatório TOTVS da Dinâmica (padrão: o mais recente de entrada/dinamica)')
     ap.add_argument('--rateio', help='consulta SQL da Dinâmica com VALOR_RATEIO (padrão: o mais recente de entrada/rateio)')
     ap.add_argument('--oc', default='oc', help='pasta dos relatórios de OC')
-    ap.add_argument('--saida', help='pasta de saída (padrão: saida/AAAA-MM)')
+    ap.add_argument('--saida', help='pasta de saída (padrão: saida/AAAA-MM; com --completo, saida_v2/AAAA-MM)')
+    ap.add_argument('--completo', action='store_true',
+                    help='relatórios completos (decisão 08/10/2026): "Relatório de Custo Fonseca e Lage" (Valor Baixado) '
+                         'e "Relatório de Custo DINAMICA" (VALOR_RATEIO); o SQL deixa de ser fonte separada')
     a = ap.parse_args()
     comp = a.competencia
     if not re.fullmatch(r'\d{4}-\d{2}', comp):
         raise SystemExit('ERRO: --competencia no formato AAAA-MM')
-    arq = {'Fonseca': a.fonseca or mais_recente('entrada/fonseca'),
-           'Dinâmica': a.dinamica or mais_recente('entrada/dinamica'),
-           'Rateio': a.rateio or mais_recente('entrada/rateio')}
+    completo = lambda pasta: mais_recente_padrao(pasta, 'Relatório de Custo*')
+    if a.completo:
+        arq = {'Fonseca': a.fonseca or completo('entrada/fonseca'), 'Dinâmica': a.dinamica or completo('entrada/dinamica')}
+    else:
+        arq = {'Fonseca': a.fonseca or mais_recente('entrada/fonseca'),
+               'Dinâmica': a.dinamica or mais_recente('entrada/dinamica'),
+               'Rateio': a.rateio or mais_recente('entrada/rateio')}
     for f, p in arq.items():
         print(f'{f}: {p}')
-    saida = a.saida or os.path.join('saida', comp)
+    saida = a.saida or os.path.join('saida_v2' if a.completo else 'saida', comp)
     os.makedirs(saida, exist_ok=True)
 
     fon = ler_totvs(arq['Fonseca'], 'Fonseca')
-    din = ler_totvs(arq['Dinâmica'], 'Dinâmica')
-    rat = ler_rateio(arq['Rateio'])
-    din, rat = cruzar_rateio(din, rat)
-    tudo = pd.concat([fon, din, rat], ignore_index=True)
+    if a.completo:
+        # ISS retido de nota (ISSRET): o VALOR_RATEIO é o bruto da nota e já inclui o imposto; o ISS fica no
+        # custo do serviço (decisão 08/10/2026). ISS da Prefeitura que não é retenção continua em 19.1.22.
+        NAO_CUSTO_DOC['ISS retido de nota: já está no valor bruto da nota (decisão 08/10/2026)'] = r'^ISSRET'
+        din = ler_dinamica_completo(arq['Dinâmica'])
+        din['cruzamento'] = ''
+        fon['cruzamento'] = ''
+        tudo = pd.concat([fon, din], ignore_index=True)
+    else:
+        din = ler_totvs(arq['Dinâmica'], 'Dinâmica')
+        rat = ler_rateio(arq['Rateio'])
+        din, rat = cruzar_rateio(din, rat)
+        tudo = pd.concat([fon, din, rat], ignore_index=True)
     tudo['cruzamento'] = tudo.cruzamento.fillna('')
     tudo['chave'] = tudo.fonte + '|' + tudo.ref.astype(str) + '|' + tudo.documento
     tudo['mes'] = tudo.competencia.astype(str).str[:7]

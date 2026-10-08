@@ -6,6 +6,7 @@
 //   node ferramentas/fechamento/importar.js --competencia 2026-07              (prévia)
 //   node ferramentas/fechamento/importar.js --competencia 2026-07 --confirmar  (grava)
 //   node ferramentas/fechamento/importar.js --desfazer <id da importação> [--confirmar]
+//   --saida saida_v2  lê automacao/saida_v2/AAAA-MM (classificador --completo); padrão: automacao/saida
 //
 // Regras (CLAUDE.md e pedido 5A, 08/10/2026):
 //   SAI    só linhas da obra nessa competência com importacao_id preenchido OU
@@ -46,6 +47,9 @@ const arg = (n) => {
 const CONFIRMAR = args.includes('--confirmar')
 const COMPETENCIA = arg('--competencia')
 const DESFAZER = arg('--desfazer')
+// pasta da saída do classificador dentro de automacao/ (saida_v2 = relatórios completos, classificador --completo)
+const SAIDA = arg('--saida') || 'saida'
+if (!/^[\w-]+$/.test(SAIDA)) throw new Error('--saida: só o nome da pasta dentro de automacao/ (ex.: saida_v2)')
 
 const fmt = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const r2 = (v) => Math.round(v * 100) / 100
@@ -152,7 +156,7 @@ async function orcamento(db) {
 async function importar(db) {
   const comp = COMPETENCIA
   if (!/^\d{4}-\d{2}$/.test(comp || '')) throw new Error('--competencia AAAA-MM')
-  const pasta = path.join(AUTOMACAO, 'saida', comp)
+  const pasta = path.join(AUTOMACAO, SAIDA, comp)
   const arqL = path.join(pasta, 'lancamentos.csv')
   const arqP = path.join(pasta, 'pendencias.csv')
   const arqR = path.join(pasta, 'resumo.json')
@@ -183,9 +187,25 @@ async function importar(db) {
   const orc = await orcamento(db)
   const est = await estrutura(db)
 
+  // Mesma nota, fornecedor e EAP em várias linhas (nota aberta por item da OC, ou com duas naturezas no
+  // rateio): o índice único aceita uma linha por nota + EAP numa carga. Agrupa somando; o total não muda.
+  const grupos = new Map()
+  brutas.forEach((b, i) => {
+    const k = txt(b.documento) ? `${txt(b.documento)}|${txt(b.fornecedor)}|${txt(b.codigo_eap)}` : `#${i}`
+    if (!grupos.has(k)) grupos.set(k, { ...b, valor: 0, __n: 0, __itens: [] })
+    const g = grupos.get(k)
+    g.valor = r2(g.valor + Number(b.valor))
+    g.__n++
+    if (txt(b.item) && !g.__itens.includes(txt(b.item))) g.__itens.push(txt(b.item))
+  })
+  const agrupadas = [...grupos.values()].filter((g) => g.__n > 1)
+  agrupadas.forEach((g) => (g.item = g.__itens.join(' + ').slice(0, 300)))
+  const unicas = [...grupos.values()]
+  if (Math.abs(soma(unicas) - totalCsv) >= 0.005) throw new Error('agrupar mudou o total: nada foi feito')
+
   // Linhas novas no formato do site (pages/api/lancamentos.js)
   let movidas = 0
-  const linhas = brutas.map((b, i) => {
+  const linhas = unicas.map((b, i) => {
     const eap = txt(b.codigo_eap)
     const pago = txt(b.competencia).slice(0, 10) // data de baixa (pagamento)
     const data = pago < S01 ? S01 : pago
@@ -296,6 +316,9 @@ async function importar(db) {
   const porFonte = {}
   linhas.forEach((l) => (porFonte[l.fonte] = r2((porFonte[l.fonte] || 0) + l.valor)))
   console.log(`          por fonte: ${Object.entries(porFonte).map(([f, v]) => `${f} ${fmt(v)}`).join(' · ')}`)
+  if (agrupadas.length)
+    console.log(`          agrupadas (mesma nota + EAP, ${brutas.length} linhas do CSV → ${unicas.length}): ` +
+      agrupadas.map((g) => `${g.documento} ${txt(g.fornecedor).slice(0, 20)} ${g.codigo_eap} (${g.__n}× = ${fmt(g.valor)})`).join('; '))
   console.log(`  MANTIDO ${String(mantido.length).padStart(3)} · ${fmt(soma(mantido)).padStart(14)}  ${Object.entries(quem).map(([k, q]) => `${k}: ${q.n} · ${fmt(q.v)}`).join(' | ')}`)
   mantido.forEach((m) => console.log(`          = id ${m.id} ${txt(m.data_emissao)} ${m.codigo_eap} ${fmt(m.valor)} ${m.fornecedor} ${m.num_documento || ''} (${m.lancado_por || '—'})`))
   console.log(`  TOTAL DO MÊS DEPOIS: ${fmt(depois)}`)

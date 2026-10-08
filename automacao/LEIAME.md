@@ -38,7 +38,27 @@ Todos os CSVs, relatórios, BMs e a pasta saida/ estão no .gitignore. No git v�
   NÃO têm essas linhas. **Pendente:** incluí-las no orçamento oficial (dados.json + orcamento_planejado) na
   fase do orçamento. Até lá o importar.js aceita o código com aviso, e o dashboard mostra o realizado sem verba.
 
-## Fontes e critério de valor (CLAUDE.md, 07/10/2026)
+## Fontes oficiais desde 08/10/2026: relatórios completos (`--completo`)
+| Fonte    | Arquivo                                                | Valor        | Prova de pagamento |
+|----------|--------------------------------------------------------|--------------|--------------------|
+| Fonseca  | entrada/fonseca/Relatório de Custo Fonseca e Lage*.xlsx | Valor Baixado | Data de Baixa preenchida e Valor Baixado > 0 |
+| Dinâmica | entrada/dinamica/Relatório de Custo DINAMICA*.xlsx      | VALOR_RATEIO (parte do Sirius) | DATA_BAIXA preenchida e VALORBAIXA > 0 |
+
+    py classificador.py --competencia 2026-09 --completo     # saida_v2/2026-09/
+
+- O relatório da Dinâmica tem o layout da consulta SQL, com todas as obras. Já traz as notas rateadas, então o
+  SQL deixa de ser fonte separada (as 27 linhas do Sirius foram conferidas em 08/10).
+- As duas fontes conferem com a linha de TOTAL do próprio relatório: a Fonseca nas colunas líquido e baixado;
+  a Dinâmica com a soma sem arredondar das linhas do Sirius.
+- ISS retido de nota (documento "ISSRET..."): não é custo, porque o VALOR_RATEIO é o bruto da nota e já inclui o
+  imposto (decisão 08/10/2026). ISS da Prefeitura que não for retenção vai para 19.1.22.
+- Linhas sem pagamento = previsão ou pedido parado: não são custo; vão para o contas a pagar. Os
+  vales/adiantamentos da Sericita não entram no contas a pagar.
+- Sem `--completo`, o classificador funciona como antes (relatórios antigos + SQL). Como os relatórios completos
+  são agora os mais recentes de cada pasta, para refazer uma carga antiga é preciso informar os arquivos
+  (`--fonseca`, `--dinamica` e `--rateio`).
+
+## Fontes e critério de valor até 07/10/2026 (modo antigo)
 | Fonte    | Arquivo                           | Valor          | Prova de pagamento |
 |----------|-----------------------------------|----------------|--------------------|
 | Fonseca  | entrada/fonseca (mais recente)    | Valor líquido  | VALOR PAGO > 0 |
@@ -91,6 +111,7 @@ Pré-requisito: ../supabase/custos/1-importacoes.sql e 2-colunas-custos.sql roda
     node ferramentas/fechamento/importar.js --competencia 2026-07              # prévia: só lê o banco
     node ferramentas/fechamento/importar.js --competencia 2026-07 --confirmar  # grava
     node ferramentas/fechamento/importar.js --desfazer <id> [--confirmar]      # devolve o mês como estava
+    node ferramentas/fechamento/importar.js --competencia 2026-09 --saida saida_v2 [--confirmar]  # relatórios completos
 
 - Uma competência por vez, lida de saida/AAAA-MM/lancamentos.csv.
 - SAI só o que é de carga: linhas do mês com importacao_id ou lancado_por = 'carga planilha' (seed 05). O resto
@@ -100,4 +121,6 @@ Pré-requisito: ../supabase/custos/1-importacoes.sql e 2-colunas-custos.sql roda
   data_emissao (a coluna da semana no site); pagamento antes de 03/08/2026 (S01) vai para 03/08/2026, mantendo a
   competência, e o histórico guarda "[pago em dd/mm/aaaa]".
 - Recusa: soma do CSV diferente do resumo.json, competência futura, pendência no mês, EAP fora do orçamento.
+- Linhas com a mesma nota, fornecedor e EAP (nota aberta por item da OC, ou com duas naturezas no rateio) são
+  agrupadas numa linha só, somando o valor; o total não muda e a prévia mostra quais foram agrupadas.
 - Antes de apagar, guarda cópia das linhas que saem em importacoes.substituidos (é o que o --desfazer devolve).

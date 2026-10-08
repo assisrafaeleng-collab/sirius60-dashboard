@@ -44,13 +44,21 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
 - Prazo: 20 meses, ago/2026 a mar/2028 (S01 = 03/08/2026). O app ainda usa 96 semanas: corrigir na fase do calendário.
 - Pavimentos: Fundação, Subsolo, Pilotis, Térreo, 1º, 2º e 3º Pav, Terraço, Reservatório, Edifício, Externo, Canteiro.
 
-## Fontes de custo (decisões do Rafael, 07/10/2026)
+## Fontes de custo (decisões do Rafael, 07/10/2026; ATUALIZADO 08/10/2026)
+- FONTES OFICIAIS a partir de 08/10/2026 (relatórios completos do que foi pago até 09/2026):
+  - "Relatório de Custo Fonseca e Lage - Até 09-26" → valor = VALOR BAIXADO (o que de fato foi pago).
+  - "Relatório de Custo DINAMICA - Até 09-26" → valor = VALOR DE RATEIO (parte do Sirius).
+  - Linhas sem pagamento nesses relatórios = previsão ou pedido parado: NÃO são custo; vão para avaliação
+    do contas a pagar.
+  - Os relatórios antigos (SIRIUS 60 (4), SIRIUS 60 - DINÂMICA, SQL - DINÂMICA, Complemento) passam a ser
+    só conferência. Se o relatório completo da Dinâmica já traz o rateio, o "SQL (rateio)" deixa de ser fonte
+    separada (não somar as duas coisas).
 - Duas empresas pagam a obra, sem sobreposição esperada:
-  - Fonseca & Lage: mão de obra e serviços sem nota fiscal. Valor = Valor líquido.
-  - Dinâmica: tudo que tem NF-e (maior parte dos materiais). Valor = Valor Baixado.
+  - Fonseca & Lage: mão de obra e serviços sem nota fiscal.
+  - Dinâmica: tudo que tem NF-e (maior parte dos materiais).
   - Mesmo assim, checar duplicidade (mesmo CNPJ + documento nas duas fontes) e mostrar na prévia.
-- "SQL (rateio)": notas compradas pela Dinâmica que atendem várias obras. Vale SÓ o valor rateado do Sirius
-  (VALOR_RATEIO); a mesma nota pelo valor cheio no relatório da Dinâmica NÃO entra (evitar contar duas vezes).
+- Rateio: notas compradas pela Dinâmica que atendem várias obras. Vale SÓ o valor rateado do Sirius;
+  a mesma nota pelo valor cheio NÃO entra (evitar contar duas vezes).
 - Centro de custo aparece como `RUA SIRIUS Nº 60` (Fonseca), `RUA SIRIUS N º 60` (Dinâmica) e `1.02.0046` (OC):
   normalizar espaços ao comparar.
 - Prova de pagamento (relatório sem "Valor Pago"): Data de Baixa preenchida e Valor Baixado > 0.
@@ -69,11 +77,18 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
     (terra, escavação, limpeza de blocos, pedra → 2.1.2; concretagem → linha de concretagem da fundação;
     aço → 2.1.7). Na dúvida, pendência.
   - NUNCA lançar o bruto do BM além dos vales (conta duas vezes).
-  - NAO_CUSTO: título "Adto Forn" do BM1 (R$ 4.639,17) na Dinâmica (já pago pela Fonseca) e a 2ª linha do
-    vale de 26/06 na Fonseca (repetição; pago uma vez só).
+  - BM1 (R$ 4.639,17, jul/26) foi pago pela DINÂMICA ("Adto Forn" 03/07, faturamento direto): é custo UMA vez,
+    em 2.1.2. Se aparecer também na Fonseca, a da Fonseca é que vira NAO_CUSTO (regra geral: cada BM/título conta
+    uma vez só, seja qual for a empresa que pagou).
+  - NAO_CUSTO: a 2ª linha do vale de 26/06 na Fonseca (repetição; pago uma vez só).
+  - Vales/adiantamentos semanais da Sericita NÃO entram no contas a pagar (sem medição do período, só poluem);
+    entram como custo apenas quando pagos.
   - Previsões das OCs 1787 e 1849 não entram no contas a pagar (comprador vai cancelar/baixar no TOTVS).
-- Outras decisões (Rafael, 07/10/2026):
-  - ISS da Prefeitura → 19.1.22.
+- Outras decisões (Rafael, 07 e 08/10/2026):
+  - ISS RETIDO de nota (linhas ISSRET): NAO_CUSTO, porque o valor da nota (rateio/baixado) já inclui o imposto;
+    o ISS fica dentro do custo do serviço. ISS da Prefeitura que NÃO for retenção de nota → 19.1.22.
+  - Terraplanagem (Luciano José Perdigão) → 2.1.1.
+  - Aço (Gerdau, Fortaleza) → 2.1.4. Viferro e Cofermeta → 17.1.10. Padaria → 17.1.12.
   - Impressões/cópias (Copiadora Realce) → linha de projeto estrutural do grupo 19.
   - Caixa Cartões → NAO_CUSTO.
   - Combustível da obra (Auto Posto; gasolina do carro de apoio) → linha NOVA 17.1.14 "Combustível obra"
