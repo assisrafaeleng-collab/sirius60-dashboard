@@ -25,6 +25,7 @@ automacao/erros/
 automacao/medicoes/
 # saidas do classificador (previas por competencia)
 automacao/saida/
+automacao/saida_v2/
 # projetos do cliente: nao vao para o GitHub
 automacao/projetos/
 # previas e conferencias do fechamento (fornecedores e valores)
