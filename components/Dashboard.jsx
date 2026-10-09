@@ -6,8 +6,9 @@ import MapaPavimentos from './MapaPavimentos'
 import FisicoPorAtividade from './FisicoPorAtividade'
 import DiarioOcorrencias from './DiarioOcorrencias'
 import CustoPorGrupo from './CustoPorGrupo'
+import CurvaSCompleta from './CurvaSCompleta'
 
-export default function Dashboard({ semana, sessao }) {
+export default function Dashboard({ semana, sessao, onSemana }) {
   const [d, setD] = useState(null)
   const [erro, setErro] = useState(null)
   // avanço físico sempre por HORAS (CLAUDE.md: horas executadas ÷ horas orçadas, nunca ponderado por valor)
@@ -73,8 +74,8 @@ export default function Dashboard({ semana, sessao }) {
       </div>
       <Kpis k={k} semana={semana} painel={painel} mostrar={mostrar} curva={d.semanas_alinhadas} />
       <div className="card">
-        <div className="card-title">{fisico ? 'Curva S física — planejado × realizado (horas)' : 'Curva S financeira — custo direto'}</div>
-        <CurvaS key={mostrar} semanas={d.semanas_alinhadas} semAtual={semana} base={base} so={fisico ? 'pct' : 'rs'} />
+        <div className="card-title">Curva S — físico e financeiro</div>
+        <CurvaSCompleta semanas={d.semanas_alinhadas} semana={semana} ultimaMedicao={k.ultima_semana_medida} onPick={onSemana} />
       </div>
       {fisico && <FisicoPorAtividade itens={itens} medido={med} semana={semana} base={base} />}
       {fisico && <MapaPavimentos itens={itens} medido={med} semana={semana} base={base} />}
@@ -136,7 +137,7 @@ const sinal = v => (v >= 0 ? '+' : '') + pc1(v)
 const S2 = n => 'S' + String(n).padStart(2, '0')
 const dmy = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—'
 const VERDE = CORES_VA.economia, VERMELHO = CORES_VA.estouro
-const PLAN = CORES_VA.agregado, REAL = '#f2f4f7'
+const PLAN = CORES_VA.agregado, REAL = '#a99cf0'   // realizado = lavanda (pedido 13D)
 const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px', borderRadius: 6 }
 
 // Adiantamento (Flats): curva = semanas_alinhadas (hh_planejado = curva do cronograma, hh_realizado = medições)
@@ -259,7 +260,7 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
     title: contas && contas.fechamento
       ? `Custo direto a pagar (só direto e não recorrente), o mesmo valor que entra no custo realizado.\nIndireto a pagar (fora deste card): ${fmt2(aPagarIndireto)}. Clique para ver os títulos.`
       : undefined }
-  const c9f = { l: 'Avanço físico · realizado ↗', v: pc1(avancoReal), link: `/avanco-fisico?semana=${semana}`,
+  const c9f = { l: 'Avanço físico · realizado ↗', c: REAL, v: pc1(avancoReal), link: `/avanco-fisico?semana=${semana}`,
     s: avancoReal == null ? 'Sem medição lançada' : `Hh executado ÷ Hh do projeto · medido até ${sMed}` }
   const c10f = { l: 'Adiantamento',
     v: adiantamento == null ? '—' : `${adiantamento.semanas >= 0 ? '+' : ''}${adiantamento.semanas.toFixed(1).replace('.', ',')} semanas`,
@@ -372,11 +373,11 @@ function CurvaS({ semanas, semAtual, base, so }) {
   const todas = [
     { id: 'fp', nome: porHora ? 'Físico planejado (h)' : 'Físico planejado', cor: '#5B9BD5',
       campo: porHora ? 'hh_planejado' : 'fisico_planejado', esc: yPct, dash: '5,4', tipo: 'pct' },
-    { id: 'fr', nome: porHora ? 'Físico realizado (h)' : 'Físico realizado', cor: '#4D9B6A',
+    { id: 'fr', nome: porHora ? 'Físico realizado (h)' : 'Físico realizado', cor: '#a99cf0',
       campo: porHora ? 'hh_realizado' : 'fisico_realizado', esc: yPct, dash: null, tipo: 'pct' },
     { id: '$p', nome: 'Financeiro planejado', cor: '#C8860A', campo: 'financeiro_planejado',
       esc: yFin, dash: '5,4', tipo: 'rs' },
-    { id: '$r', nome: 'Financeiro realizado', cor: '#E91E8C', campo: 'financeiro_realizado',
+    { id: '$r', nome: 'Financeiro realizado', cor: '#a99cf0', campo: 'financeiro_realizado',
       esc: yFin, dash: null, tipo: 'rs' },
   ]
   const series = so ? todas.filter(s => s.tipo === so) : todas

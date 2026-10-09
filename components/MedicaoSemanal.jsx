@@ -5,7 +5,7 @@ import { OBRA, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
          inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo, hojeSaoPaulo } from '../lib/constants'
 
 const AZUL = '#5B9BD5'
-const ROSA = '#E91E8C'
+const REALIZADO = '#a99cf0'   // lavanda (pedido 13D)
 
 export default function MedicaoSemanal({ semana, sessao }) {
   const [itens, setItens] = useState(null)
@@ -220,7 +220,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
             </div>
             <div style={{ textAlign: 'right', minWidth: 58 }}>
               <div style={{ font: '600 13px var(--mono)',
-                            color: b.realPct > 0 ? ROSA : 'var(--text3)' }}>
+                            color: b.realPct > 0 ? REALIZADO : 'var(--text3)' }}>
                 {fmtPct(b.realPct, 0)}
               </div>
               <div className="kpi-sub">executado</div>
@@ -232,7 +232,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                               background: AZUL, opacity: .3, borderRadius: 4 }} />
                 <div style={{ position: 'absolute', left: 0, top: 0, height: 8,
                               width: Math.min(b.realPct, 100) + '%',
-                              background: ROSA, borderRadius: 4 }} />
+                              background: REALIZADO, borderRadius: 4 }} />
               </div>
             </div>
             <span style={{ color: 'var(--text3)', fontSize: 11 }}>{recolhido ? '▼' : '▲'}</span>
@@ -266,7 +266,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                 </div>
                 <div style={{ textAlign: 'right', minWidth: 62 }}>
                   <div style={{ font: '600 13px var(--mono)',
-                                color: i._acum > 0 ? ROSA : 'var(--text3)' }}>
+                                color: i._acum > 0 ? REALIZADO : 'var(--text3)' }}>
                     {fmtPct(i._acum, 0)}
                   </div>
                   <div className="kpi-sub">executado</div>
@@ -278,7 +278,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                                   background: AZUL, opacity: .3, borderRadius: 5 }} />
                     <div style={{ position: 'absolute', left: 0, top: 0, height: 9,
                                   width: Math.min(i._acum, 100) + '%',
-                                  background: atras ? 'var(--amber)' : ROSA, borderRadius: 5 }} />
+                                  background: atras ? 'var(--amber)' : REALIZADO, borderRadius: 5 }} />
                   </div>
                 </div>
                 <span style={{ color: 'var(--text3)', fontSize: 11 }}>{on ? '▲' : '▼'}</span>
@@ -311,7 +311,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                             </td>
                             <td style={{ fontFamily: 'var(--mono)', fontSize: 11,
                                          color: 'var(--text3)' }}>S{l.semana_numero}</td>
-                            <td style={{ fontFamily: 'var(--mono)', color: ROSA }}>
+                            <td style={{ fontFamily: 'var(--mono)', color: REALIZADO }}>
                               {acumulado
                                 ? <>{parseFloat(l.percentual).toFixed(1)}%{l.transferido_de &&
                                     <span className="kpi-sub" title="medição feita na linha de material e transferida"> (de {l.transferido_de})</span>}</>
@@ -337,7 +337,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                         ))}
                         <tr>
                           <td colSpan={2} style={{ fontWeight: 600 }}>Acumulado</td>
-                          <td style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: ROSA }}>
+                          <td style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: REALIZADO }}>
                             {fmtPct(i._acum, 1)}
                           </td>
                           <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>

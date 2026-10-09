@@ -1,14 +1,15 @@
 import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
+import MemoriaAvanco from '../components/MemoriaAvanco'
 import { OBRA, fmtPct, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
 
 // Avanço físico (pedido 13): só linhas de SERVIÇO, agrupadas grupo → pavimento → serviço.
 // Avanço = horas executadas ÷ horas orçadas (CLAUDE.md). O material não aparece: herda o % do serviço vinculado e
 // as horas dele entram nos totais do grupo e da obra. Números da /api/painel (lib/valor-agregado.js).
 const AZUL = '#5B9BD5'
-const ROSA = '#E91E8C'
+const REALIZADO = '#a99cf0'   // lavanda (pedido 13D)
 const nf = (v, d = 0) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d })
 
 function agrega(linhas) {
@@ -26,15 +27,22 @@ export default function AvancoFisico() {
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState('ativos')   // ativos | atrasados | todos
   const [aberto, setAberto] = useState({})
+  const [linhaAberta, setLinhaAberta] = useState(null)   // memória de cálculo aberta (id da linha)
+  const [med, setMed] = useState(null)                   // retratos de medição (/api/medicao-retratos)
+  const [recarga, setRecarga] = useState(0)              // depois de gravar: recalcula painel e medições
 
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())
   }, [router.query.semana])
   useEffect(() => {
-    setP(null); setErro(null)
+    if (!recarga) { setP(null); setErro(null) }
     fetch(`/api/painel?semana=${semana}`).then(r => r.json())
       .then(j => (j.error ? setErro(j.message || j.error) : setP(j))).catch(e => setErro(e.message))
-  }, [semana])
+  }, [semana, recarga])
+  useEffect(() => {
+    fetch('/api/medicao-retratos').then(r => r.json())
+      .then(j => !j.error && setMed(j)).catch(() => {})
+  }, [recarga])
 
   // produção: serviços + materiais (os materiais só pesam nos totais)
   const prod = useMemo(() => (p ? p.linhas.filter(l => l.producao && (l.tipo === 'servico' || l.tipo === 'material')) : []), [p])
@@ -78,7 +86,7 @@ export default function AvancoFisico() {
         <div style={{ position: 'absolute', left: 0, top: 0, height: 9, width: Math.min(plan, 100) + '%',
                       background: AZUL, opacity: .35, borderRadius: 5 }} />
         <div style={{ position: 'absolute', left: 0, top: 0, height: 9, width: Math.min(real, 100) + '%',
-                      background: ROSA, borderRadius: 5 }} />
+                      background: REALIZADO, borderRadius: 5 }} />
       </div>
     </div>
   )
@@ -99,7 +107,7 @@ export default function AvancoFisico() {
         <div className="kpi-sub">planejado</div>
       </div>
       <div style={{ textAlign: 'right', minWidth: 64 }}>
-        <div style={{ font: '600 13px var(--mono)', color: ROSA }}>{fmtPct(ag.realPct)}</div>
+        <div style={{ font: '600 13px var(--mono)', color: REALIZADO }}>{fmtPct(ag.realPct)}</div>
         <div className="kpi-sub">realizado</div>
       </div>
       <div style={{ textAlign: 'right', minWidth: 76, font: '600 12px var(--mono)', color: corDesvio(ag.realPct - ag.planPct) }}>
@@ -140,9 +148,9 @@ export default function AvancoFisico() {
                   <div className="kpi-value" style={{ color: AZUL }}>{fmtPct(av.planejado, 2)}</div>
                   <div className="kpi-sub">{av.planejado_fonte === 'curva' ? 'curva do cronograma (horas)' : 'horas do orçamento, linear'}</div>
                 </div>
-                <div className="kpi" style={{ borderLeft: `3px solid ${ROSA}` }}>
+                <div className="kpi" style={{ borderLeft: `3px solid ${REALIZADO}` }}>
                   <div className="kpi-label">Realizado até S{semana}</div>
-                  <div className="kpi-value" style={{ color: ROSA }}>{fmtPct(av.realizado, 2)}</div>
+                  <div className="kpi-value" style={{ color: REALIZADO }}>{fmtPct(av.realizado, 2)}</div>
                   <div className="kpi-sub">{nf(av.hh_exec)} h executadas de {nf(av.hh_total)} h orçadas</div>
                 </div>
                 <div className="kpi" style={{ borderLeft: `3px solid ${desvioObra >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
@@ -227,12 +235,16 @@ export default function AvancoFisico() {
                                 </thead>
                                 <tbody>
                                   {pv.servicos.map(l => (
-                                    <tr key={l.id}>
-                                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{l.codigo_eap}</td>
+                                    <React.Fragment key={l.id}>
+                                    <tr onClick={() => setLinhaAberta(linhaAberta === l.id ? null : l.id)} style={{ cursor: 'pointer' }}
+                                        title="Ver a memória de cálculo e lançar medição">
+                                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
+                                        <span style={{ marginRight: 4 }}>{linhaAberta === l.id ? '▾' : '▸'}</span>{l.codigo_eap}
+                                      </td>
                                       <td>{l.descricao}</td>
                                       <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>S{l.semana_inicio}–S{l.semana_fim}</td>
                                       <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: AZUL }}>{fmtPct(l.perc_plan, 0)}</td>
-                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: l.medido ? ROSA : 'var(--text3)' }}>
+                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: l.medido ? REALIZADO : 'var(--text3)' }}>
                                         {l.medido ? fmtPct(l.perc_real, 1) : '—'}
                                       </td>
                                       <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: corDesvio(l.desvio) }}>{pp(l.desvio)}</td>
@@ -243,6 +255,18 @@ export default function AvancoFisico() {
                                         {l.semana_medida ? 'S' + l.semana_medida : '—'}
                                       </td>
                                     </tr>
+                                    {linhaAberta === l.id && (
+                                      <tr>
+                                        <td colSpan={8} style={{ padding: 0 }}>
+                                          {!med ? <div className="loading">Carregando medições…</div> : (
+                                            <MemoriaAvanco linha={l} modo={med.modo}
+                                              retratos={med.retratos.filter(r => r.codigo_eap === l.codigo_eap && r.pavimento === l.pavimento)}
+                                              onGravou={() => setRecarga(x => x + 1)} />
+                                          )}
+                                        </td>
+                                      </tr>
+                                    )}
+                                    </React.Fragment>
                                   ))}
                                 </tbody>
                               </table>

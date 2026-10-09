@@ -1,7 +1,7 @@
 import { supabase, supabasePronto } from '../../lib/supabase'
 import { carregarCalendario } from '../../lib/calendario-servidor'
 import { senhaOk } from '../../lib/senha-servidor'
-import { OBRA, dataParaSemana } from '../../lib/constants'
+import { OBRA, dataParaSemana, hojeSaoPaulo } from '../../lib/constants'
 import { competenciaDaSemana } from '../../lib/calendario'
 import { carregarMedicoes, carregarVinculos, TABELA_HISTORICO, TABELA_INCREMENTOS } from '../../lib/medicao-servidor'
 import { chaveLinha } from '../../lib/medicao'
@@ -15,9 +15,12 @@ import { chaveLinha } from '../../lib/medicao'
 //   'incremento' enquanto a tabela nova não existir: avanco_fisico_realizado, "quanto avançou" (como antes).
 // Linha de material (vinculada a um serviço) não recebe medição: herda o avanço do serviço.
 // GET    -> lançamentos por linha + acumulado · POST { ... } -> um lançamento · DELETE ?id=N -> remove
+// PUT { id, percentual, data, observacao, medido_por } -> edita (só no modo acumulado; guarda editado_por/em)
+// No modo acumulado o DELETE não apaga: marca excluido_em/excluido_por (?quem=) e o lançamento deixa de valer.
+// Validações (pedido 13D): total entre 0 e 100%; data dentro do calendário; sem data futura (fuso de São Paulo).
 export default async function handler(req, res) {
   const obra_id = OBRA.id
-  if (!['GET', 'POST', 'DELETE'].includes(req.method)) {
+  if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) {
     return res.status(405).json({ error: 'Method not allowed' })
   }
   if (!senhaOk(req, res)) return
@@ -56,6 +59,36 @@ export default async function handler(req, res) {
                                   materiais: vinc.vinculos.map(v => chaveLinha(v.material_codigo, v.material_pavimento)) })
   }
 
+  if (req.method === 'PUT') {
+    if (!acumulado) return res.status(409).json({ error: 'Lançamento liberado depois da conversão da medição acumulada' })
+    const b = req.body || {}
+    const id = parseInt(b.id)
+    const data = String(b.data || '').slice(0, 10)
+    const semana = /^\d{4}-\d{2}-\d{2}$/.test(data) ? dataParaSemana(data) : null
+    if (!id) return res.status(400).json({ error: 'Lançamento não identificado' })
+    if (!semana || semana > OBRA.prazo_semanas) return res.status(400).json({ error: 'Data fora do calendário da obra' })
+    if (data > hojeSaoPaulo()) return res.status(400).json({ error: 'Data no futuro' })
+    const perc = parseFloat(b.percentual)
+    if (!Number.isFinite(perc) || perc < 0 || perc > 100) {
+      return res.status(400).json({ error: 'O total acumulado deve estar entre 0 e 100%' })
+    }
+    try {
+      const { data: atual, error: e1 } = await supabase.from(TABELA_HISTORICO).select('id, hh_planejado')
+        .eq('obra_id', obra_id).eq('id', id).is('excluido_em', null).single()
+      if (e1 || !atual) return res.status(404).json({ error: 'Lançamento não encontrado' })
+      const hh = parseFloat(atual.hh_planejado) || 0
+      const { error } = await supabase.from(TABELA_HISTORICO).update({
+        percentual_realizado: perc, data_lancamento: data, semana_numero: semana, competencia: competenciaDaSemana(semana),
+        hh_realizado: hh ? +(hh * perc / 100).toFixed(2) : null, observacao: b.observacao || null,
+        editado_por: b.medido_por || null, editado_em: new Date().toISOString(),
+      }).eq('obra_id', obra_id).eq('id', id)
+      if (error) throw new Error(error.message)
+      return res.status(200).json({ ok: true, id, semana })
+    } catch (e) {
+      return res.status(500).json({ error: 'Erro ao editar', message: e.message })
+    }
+  }
+
   if (req.method === 'POST') {
     const b = req.body || {}
     const data = String(b.data || '').slice(0, 10)
@@ -63,6 +96,7 @@ export default async function handler(req, res) {
     if (!semana || semana > OBRA.prazo_semanas) {
       return res.status(400).json({ error: 'Data fora do prazo da obra' })
     }
+    if (data > hojeSaoPaulo()) return res.status(400).json({ error: 'Data no futuro' })
     if (!b.codigo_eap || !b.pavimento) {
       return res.status(400).json({ error: 'Serviço não identificado' })
     }
@@ -83,7 +117,7 @@ export default async function handler(req, res) {
       if (acumulado) {
         const perc = parseFloat(b.percentual)
         if (!Number.isFinite(perc) || perc < 0 || perc > 100) {
-          return res.status(400).json({ error: 'O percentual acumulado deve estar entre 0 e 100' })
+          return res.status(400).json({ error: 'O total acumulado deve estar entre 0 e 100%' })
         }
         const hh = parseFloat(item.hh) || 0
         const { data: d, error } = await supabase.from(TABELA_HISTORICO).insert({
@@ -124,8 +158,12 @@ export default async function handler(req, res) {
 
   if (req.method === 'DELETE') {
     try {
-      const { error } = await supabase.from(acumulado ? TABELA_HISTORICO : TABELA_INCREMENTOS)
-        .delete().eq('obra_id', obra_id).eq('id', parseInt(req.query.id))
+      // modo acumulado: não apaga; marca quem excluiu e quando (o lançamento deixa de valer)
+      const { error } = acumulado
+        ? await supabase.from(TABELA_HISTORICO)
+            .update({ excluido_em: new Date().toISOString(), excluido_por: String(req.query.quem || '') || null })
+            .eq('obra_id', obra_id).eq('id', parseInt(req.query.id)).is('excluido_em', null)
+        : await supabase.from(TABELA_INCREMENTOS).delete().eq('obra_id', obra_id).eq('id', parseInt(req.query.id))
       if (error) throw new Error(error.message)
       return res.status(200).json({ ok: true })
     } catch (e) {

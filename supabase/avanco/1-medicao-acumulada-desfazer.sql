@@ -25,8 +25,9 @@ drop table public.avanco_fisico_historico;
 
 commit;
 
--- Conferência: medições lançadas pela tela depois do passo 1 (relançar como incremento, se houver)
+-- Conferência: medições lançadas pela tela depois do passo 1 (relançar como incremento, se houver; as excluídas
+-- pela tela têm excluido_em preenchido e não valem)
 select id, codigo_eap, pavimento, percentual_realizado, data_lancamento, medido_por
-  from public.avanco_fisico_historico_desfeito_20261008 where origem = 'tela' order by data_lancamento, id;
+  from public.avanco_fisico_historico_desfeito_20261008 where origem = 'tela' and excluido_em is null order by data_lancamento, id;
 -- O backup avanco_fisico_realizado_bkp_20261008 pode ser apagado depois de conferir (só com autorização):
 -- drop table public.avanco_fisico_realizado_bkp_20261008;

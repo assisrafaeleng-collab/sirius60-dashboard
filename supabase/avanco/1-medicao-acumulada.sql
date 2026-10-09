@@ -85,7 +85,11 @@ create table public.avanco_fisico_historico (
   origem                text not null default 'tela' check (origem in ('tela', 'conversao')),
   origem_ids            bigint[],                      -- ids de avanco_fisico_realizado (conversão)
   transferido_de        text,                          -- material de onde veio a medição (conversão)
-  criado_em             timestamptz not null default now()
+  criado_em             timestamptz not null default now(),
+  editado_por           text,                          -- última edição pela tela (pedido 13D)
+  editado_em            timestamptz,
+  excluido_por          text,                          -- exclusão pela tela: a linha fica, mas deixa de valer
+  excluido_em           timestamptz
 );
 create index avanco_fisico_historico_linha on public.avanco_fisico_historico (obra_id, codigo_eap, pavimento, semana_numero);
 alter table public.avanco_fisico_historico enable row level security;

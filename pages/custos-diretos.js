@@ -13,11 +13,20 @@ const s2 = (n) => `S${String(n).padStart(2, '0')}`
 const dmy = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '')
 
 // Código, serviço, pavimento, orçado, % físico, medido, valor agregado, pago, a pagar, % do orçado,
-// estouro / economia, saldo da verba
-const COLS = '70px minmax(180px,1fr) 86px 122px 62px 104px 122px 118px 110px 64px 122px 122px'
+// estouro / economia, saldo da verba. Larguras do Flats (cabe na tela sem rolagem e o serviço quebra em linhas);
+// PAV. em 11px cabe "Reservatório"; ORÇADO e SALDO cabem o total de 7 milhões; MEDIDO quebra (herda 6.1.1.1/6.1.1).
+const COLS = '62px minmax(0,1fr) 64px 108px 52px 70px 104px 100px 96px 58px 100px 108px'
 
-// CÓDIGO e SERVIÇO ficam fixos na rolagem lateral (sticky à esquerda, com o fundo da própria linha)
-const FIXAS = [0, 78]   // left de cada coluna fixa: 70px do código + 8px de espaço
+// Só em tela pequena a tabela rola para o lado; aí CÓDIGO e SERVIÇO ficam fixos (sticky à esquerda)
+const CSS_ROLAGEM = `
+.va-rolagem { overflow-x: visible; }
+@media (max-width: 900px) {
+  .va-rolagem { overflow-x: auto; } .va-tabela { min-width: 1080px; }
+  .va-fixa { position: sticky; z-index: 2; } .va-fixa-0 { left: 0; }
+  .va-fixa-1 { left: 70px; box-shadow: 6px 0 6px -6px rgba(0,0,0,.6); }
+}
+`
+const FIXAS = 2   // CÓDIGO e SERVIÇO; a segunda fica a 70px (62px do código + 8px de espaço)
 function Linha({ children, cabecalho, destaque, onClick, title }) {
   const fundo = destaque ? 'var(--bg3)' : 'var(--bg2)'
   return (
@@ -30,10 +39,9 @@ function Linha({ children, cabecalho, destaque, onClick, title }) {
         background: fundo, alignItems: 'center',
         ...(cabecalho ? { position: 'sticky', top: 0, zIndex: 3 } : {}),
       }}>
-      {React.Children.map(children, (c, n) => (n < FIXAS.length && React.isValidElement(c)
-        ? React.cloneElement(c, { style: { ...(c.props.style || {}), position: 'sticky', left: FIXAS[n], zIndex: 2,
-            background: fundo, alignSelf: 'stretch', display: 'flex', alignItems: 'center',
-            ...(n === 1 ? { boxShadow: '6px 0 6px -6px rgba(0,0,0,.6)' } : {}) } })
+      {React.Children.map(children, (c, n) => (n < FIXAS && React.isValidElement(c)
+        ? React.cloneElement(c, { className: `va-fixa va-fixa-${n}`, style: { ...(c.props.style || {}),
+            background: fundo, alignSelf: 'stretch', display: 'flex', alignItems: 'center', minWidth: 0, overflowWrap: 'anywhere' } })
         : c))}
     </div>
   )
@@ -107,10 +115,13 @@ export default function ValorAgregado() {
       if (i.orcado <= 0.005 && custo <= 0.005 && i.agregado <= 0.005) return   // linha de título: não aparece
       const casa = !termo || [i.codigo_eap, i.descricao, i.pavimento].some((x) => String(x || '').toLowerCase().includes(termo))
       if (!casa) return
-      if (i.agregado > 0.005 || custo > 0.005 || mostrarZerados) g.itens.push(i)
+      // Não iniciado = sem % físico, sem valor agregado, sem pago e sem a pagar: escondido, mas fica no subtotal
+      if (i.perc_real > 0 || i.agregado > 0.005 || custo > 0.005 || mostrarZerados) g.itens.push(i)
       else g.zerados += 1
     })
+    // Grupo sem nenhum item iniciado (ou sem resultado na busca) também some; o total geral soma todos
     return Array.from(mapa.values()).sort((a, b) => a.grupo - b.grupo).map((g) => ({ ...g, t: somar(g.todas) }))
+      .filter((g) => g.itens.length > 0 || (mostrarZerados && !termo))
   }, [p, busca, mostrarZerados])
 
   const chaves = grupos.map((g) => `g${g.grupo}`)
@@ -188,7 +199,7 @@ export default function ValorAgregado() {
             </div>
 
             <div className="card">
-              <div className="card-title">Custo direto — linha a linha</div>
+              <div className="card-title">Produção — item a item</div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
                 <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar código, serviço ou pavimento" style={{ maxWidth: 320 }} />
                 <button className="btn-sm" onClick={() => setAbertos(todosAbertos ? new Set() : new Set(chaves))}>
@@ -206,8 +217,9 @@ export default function ValorAgregado() {
                 </span>
               </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <div style={{ minWidth: 1300 }}>
+              <style>{CSS_ROLAGEM}</style>
+              <div className="va-rolagem">
+                <div className="va-tabela">
                   <Linha cabecalho>
                     <div>Código</div>
                     <div>Serviço</div>
@@ -239,10 +251,10 @@ export default function ValorAgregado() {
                           <Linha key={i.id}>
                             <div style={{ color: 'var(--text2)' }}>{i.codigo_eap}</div>
                             <div>{i.descricao}</div>
-                            <div style={{ color: 'var(--text2)' }}>{i.pavimento || '—'}</div>
+                            <div style={{ color: 'var(--text2)', fontSize: 11 }}>{i.pavimento || '—'}</div>
                             <div style={dir}>{fmtMoeda(i.orcado)}</div>
                             <div style={dir}>{semExec || i.tipo === 'locacao' || i.perc_real == null ? '—' : fmtP(i.perc_real)}</div>
-                            <div style={{ ...dir, color: i.tipo === 'servico' ? 'var(--text2)' : PLAN }} title={tituloMedido(i)}>{medidoDe(i)}</div>
+                            <div style={{ ...dir, overflowWrap: 'break-word', color: i.tipo === 'servico' ? 'var(--text2)' : PLAN }} title={tituloMedido(i)}>{medidoDe(i)}</div>
                             <div style={{ ...dir, color: semExec ? 'var(--text2)' : PLAN }}>{semExec ? '—' : fmtMoeda(i.agregado)}</div>
                             <div style={{ ...dir, color: estouroPago ? VERMELHO : 'var(--text)' }} title={estouroPago ? 'Pago acima do executado' : ''}>
                               {i.pago > 0.005 ? fmtMoeda(i.pago) : '—'}

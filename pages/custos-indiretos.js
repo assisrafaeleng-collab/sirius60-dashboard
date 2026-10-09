@@ -2,11 +2,17 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useEffect, useMemo, useState } from 'react'
-import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel,
+import { OBRA, fmtMoeda2, fmtP1, CORES_VA, semanaLabel,
          inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
 
+// Pedido 13D: valores com 2 casas e % com 1 casa; desvio com o sinal da Visão geral e do Flats
+// (planejado − realizado: positivo = economia verde, negativo = estouro vermelho); realizado = pago + a pagar.
+const fmtMoeda = fmtMoeda2
+const fmtPct = (v) => fmtP1(v)
+const { economia: VERDE, estouro: VERMELHO, aPagar: AMBAR } = CORES_VA
+
 const AZUL = '#5B9BD5'
-const ROSA = '#E91E8C'
+const REALIZADO = '#a99cf0'   // lavanda (pedido 13D)
 
 const ORDENS = [
   { v: 'acumulado', l: 'Maior acumulado' },
@@ -50,8 +56,8 @@ export default function CustosIndiretos() {
 
   const fmtBR = x => x.toLocaleDateString('pt-BR')
   const vs = visao === 'vs'
-  const corDesvio = dv => dv == null ? 'var(--text3)'
-    : dv > 5 ? 'var(--red-tx)' : dv > -5 ? 'var(--amber-tx)' : 'var(--green-tx)'
+  const corDesvio = dv => dv == null || Math.abs(dv) < 0.005 ? 'var(--text3)' : dv > 0 ? VERDE : VERMELHO
+  const txtPct = dv => dv == null ? '—' : (dv > 0 ? '+' : '') + fmtPct(dv)
 
   return (
     <>
@@ -87,7 +93,7 @@ export default function CustosIndiretos() {
           {!d && !erro && <div className="loading">Carregando custos indiretos…</div>}
 
           {d && (() => {
-            const saldo = d.acumulado_ate - d.realizado_ate
+            const saldo = d.desvio
             return (
             <>
               <div className="kpi-grid">
@@ -102,34 +108,29 @@ export default function CustosIndiretos() {
                 </div>
                 {vs && (
                   <>
-                    <div className="kpi" style={{ borderLeft: `3px solid ${ROSA}` }}>
+                    <div className="kpi" style={{ borderLeft: `3px solid ${REALIZADO}` }}>
                       <div className="kpi-label">Realizado até S{semana}</div>
-                      <div className="kpi-value" style={{ color: ROSA }}>
+                      <div className="kpi-value" style={{ color: REALIZADO }}>
                         {fmtMoeda(d.realizado_ate)}
                       </div>
-                      <div className="kpi-sub">{d.qtd_lancamentos} lançamentos de indireto</div>
-                    </div>
-                    <div className="kpi" style={{
-                      borderLeft: `3px solid ${saldo >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
-                      <div className="kpi-label">Saldo</div>
-                      <div className="kpi-value"
-                           style={{ color: saldo >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
-                        {fmtMoeda(saldo)}
+                      <div className="kpi-sub">
+                        {d.acumulado_ate > 0 ? `${fmtPct(100 * d.realizado_ate / d.acumulado_ate)} do planejado (pago + a pagar)` : '—'}
+                        <div>pago {fmtMoeda(d.pago_ate)} · <span style={{ color: d.a_pagar > 0 ? AMBAR : undefined }}>a pagar {fmtMoeda(d.a_pagar)}</span></div>
                       </div>
-                      <div className="kpi-sub"
-                           style={{ color: saldo >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
-                        {saldo >= 0 ? 'Economia sobre o planejado' : 'Estouro sobre o planejado'}
+                    </div>
+                    <div className="kpi" style={{ borderLeft: `3px solid ${corDesvio(saldo)}` }}>
+                      <div className="kpi-label">Saldo custo indireto</div>
+                      <div className="kpi-value" style={{ color: corDesvio(saldo) }}>{fmtMoeda(saldo)}</div>
+                      <div className="kpi-sub" style={{ color: corDesvio(saldo) }}>
+                        {saldo >= 0 ? 'Economia' : 'Estouro'} · planejado − realizado
                       </div>
                     </div>
                     <div className="kpi" style={{ borderLeft: `3px solid ${corDesvio(d.desvio_pct)}` }}>
-                      <div className="kpi-label">Desvio financeiro</div>
-                      <div className="kpi-value" style={{ color: corDesvio(d.desvio_pct) }}>
-                        {d.desvio_pct == null ? '—'
-                          : (d.desvio_pct > 0 ? '+' : '') + fmtPct(d.desvio_pct)}
-                      </div>
+                      <div className="kpi-label">% Desvio do custo indireto</div>
+                      <div className="kpi-value" style={{ color: corDesvio(d.desvio_pct) }}>{txtPct(d.desvio_pct)}</div>
                       <div className="kpi-sub" style={{ color: corDesvio(d.desvio_pct) }}>
                         {d.desvio_pct == null ? 'sem base de comparação'
-                          : d.desvio_pct <= 0 ? 'Dentro do orçamento' : 'Acima do orçamento'}
+                          : `${d.desvio_pct >= 0 ? 'Economia' : 'Estouro'} sobre o planejado · até S${semana}`}
                       </div>
                     </div>
                   </>
@@ -176,8 +177,9 @@ export default function CustosIndiretos() {
                         <th>Categoria</th>
                         <th style={{ width: 116 }}>Total projeto</th>
                         <th style={{ width: 116 }}>Planejado</th>
-                        {vs && <th style={{ width: 116 }}>Realizado</th>}
-                        {vs && <th style={{ width: 70 }}>Desvio</th>}
+                        {vs && <th style={{ width: 130 }}>Pago</th>}
+                        {vs && <th style={{ width: 116 }}>A pagar</th>}
+                        {vs && <th style={{ width: 120 }} title="Planejado − (pago + a pagar). Positivo = economia (verde), negativo = estouro (vermelho); o % é sobre o planejado">Desvio</th>}
                         {!vs && <th style={{ width: 150 }}>Desembolsado</th>}
                       </tr>
                     </thead>
@@ -205,16 +207,28 @@ export default function CustosIndiretos() {
                               : <span style={{ color: 'var(--text3)', fontWeight: 400 }}>—</span>}
                           </td>
                           {vs && (
-                            <td style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: ROSA }}>
-                              {c.realizado > 0 ? fmtMoeda(c.realizado)
+                            <td style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: REALIZADO }}
+                                title={c.pago > 0 ? '' : c.acumulado > 0 ? 'planejado e ainda não pago' : ''}>
+                              {c.pago > 0 ? fmtMoeda(c.pago)
                                 : <span style={{ color: 'var(--text3)', fontWeight: 400 }}>—</span>}
                             </td>
                           )}
                           {vs && (
-                            <td style={{ fontFamily: 'var(--mono)', fontSize: 11,
-                                         color: corDesvio(c.desvio_pct) }}>
-                              {c.desvio_pct == null ? '—'
-                                : (c.desvio_pct > 0 ? '+' : '') + fmtPct(c.desvio_pct, 0)}
+                            <td style={{ fontFamily: 'var(--mono)', color: c.a_pagar > 0 ? AMBAR : 'var(--text3)' }}>
+                              {c.a_pagar > 0 ? fmtMoeda(c.a_pagar) : '—'}
+                            </td>
+                          )}
+                          {vs && (
+                            <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: corDesvio(c.desvio) }}
+                                title={c.realizado > 0 || c.acumulado > 0
+                                  ? `Planejado − (pago + a pagar)
+= ${fmtMoeda(c.acumulado)} − (${fmtMoeda(c.pago)} + ${fmtMoeda(c.a_pagar)})` : ''}>
+                              {c.realizado <= 0 && c.acumulado <= 0 ? '—' : (
+                                <>
+                                  {(c.desvio > 0.005 ? '+' : '') + fmtMoeda(c.desvio)}
+                                  <div style={{ fontSize: 10 }}>{txtPct(c.desvio_pct)}</div>
+                                </>
+                              )}
                             </td>
                           )}
                           {!vs && (

@@ -67,7 +67,7 @@ export default function Home() {
         </header>
 
         <div style={{ marginTop: 22 }}>
-          {aba === 0 && <Dashboard semana={semana} sessao={sessao} />}
+          {aba === 0 && <Dashboard semana={semana} sessao={sessao} onSemana={setSemana} />}
           {(aba === 1 || aba === 2) && !sessao && (
             <Desbloqueio onLiberar={quem => setSessao({ quem })} />
           )}

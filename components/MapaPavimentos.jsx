@@ -163,7 +163,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
                 </div>
                 <div>
                   <div className="kpi-sub">Executado</div>
-                  <div style={{ font: '600 13px var(--mono)', color: '#E91E8C' }}>
+                  <div style={{ font: '600 13px var(--mono)', color: '#a99cf0' }}>
                     {fmtPct(foco.realPct, 1)}
                   </div>
                 </div>
