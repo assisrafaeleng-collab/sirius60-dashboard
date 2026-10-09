@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import React, { useEffect, useMemo, useState } from 'react'
 import { OBRA, fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, semanaLabel, semanaAtualObra, semanasPorMes } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
-import { PLAN, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar } from '../components/ValorCusto'
+import { PLAN, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar, ResumoVerbaForma } from '../components/ValorCusto'
 
 // Memória de cálculo do valor agregado (pedido 13C): layout, cores, formato e textos da /valor-agregado do Flats.
 // Uma tabela única, grupo → linhas (código + pavimento). Números da /api/painel (lib/valor-agregado.js):
@@ -15,7 +15,7 @@ const dmy = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : 
 // Código, serviço, pavimento, orçado, % físico, medido, valor agregado, pago, a pagar, % do orçado,
 // estouro / economia, saldo da verba. Larguras do Flats (cabe na tela sem rolagem e o serviço quebra em linhas);
 // PAV. em 11px cabe "Reservatório"; ORÇADO e SALDO cabem o total de 7 milhões; MEDIDO quebra (herda 6.1.1.1/6.1.1).
-const COLS = '62px minmax(0,1fr) 64px 108px 52px 70px 104px 100px 96px 58px 100px 108px'
+const COLS = '62px minmax(0,1fr) 64px 108px 50px 70px 104px 100px 96px 54px 110px 108px'
 
 // Só em tela pequena a tabela rola para o lado; aí CÓDIGO e SERVIÇO ficam fixos (sticky à esquerda)
 const CSS_ROLAGEM = `
@@ -82,6 +82,7 @@ const tituloMedido = (i) => i.material_comprado
   ? `Compra antecipada (material comprado antes da execução): agregado = custo pago + a pagar, até o orçado. O serviço está em ${fmtP(i.perc_real)}.`
   : i.tipo === 'tempo' ? 'Verba que corre com o tempo: linear pelos dias da obra'
   : i.tipo === 'locacao' ? 'Locação: valor agregado = gasto até a verba'
+  : i.verba_forma ? `Verba de forma (material reaproveitado): valor agregado = % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${h.pavimento}`).join(' + ')} × orçado; custo = ${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba`
   : i.tipo === 'material' ? `Material sem medição própria: usa o % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${h.pavimento}${h.peso < 1 ? ` (peso ${fmtP(h.peso * 100)})` : ''}`).join(' + ')}; ou o custo pago + a pagar até o orçado, se for maior`
   : ''
 
@@ -217,6 +218,7 @@ export default function ValorAgregado() {
                 </span>
               </div>
 
+              <ResumoVerbaForma v={p.totais.verba_forma} />
               <style>{CSS_ROLAGEM}</style>
               <div className="va-rolagem">
                 <div className="va-tabela">

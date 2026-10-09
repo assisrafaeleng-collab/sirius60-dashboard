@@ -7,7 +7,7 @@ import { fmtMoeda2 as fmtMoeda, fmtP1 as fmtP } from '../lib/constants'
 import { competenciaDaSemana } from '../lib/calendario'
 import ListaLancamentos from './ListaLancamentos'
 import { PLAN, AMBAR, CINZA, VERMELHO, BarraEstouro, NeutroVerba, Estouro, percDoOrcado, fmtPercOrcado,
-  tituloPercOrcado, somar } from './ValorCusto'
+  tituloPercOrcado, somar, ResumoVerbaForma } from './ValorCusto'
 
 const GRUPO_COLS = '38px minmax(0,1fr) 140px 150px 200px 84px 180px 28px'
 const S2 = (n) => `S${String(n).padStart(2, '0')}`
@@ -81,12 +81,13 @@ export default function CustoPorGrupo({ semana }) {
     <div className="card">
       <div className="card-title">Custo direto por grupo — valor agregado × custo até {S2(semana)}</div>
       <div style={{ fontSize: 11, color: CINZA, margin: '-6px 0 10px' }}>
-        Valor agregado pela mesma regra do card (inclusive compra antecipada) · custo = pago + a pagar · estouro /
+        Valor agregado pela mesma regra do card (inclusive compra antecipada; material de forma pela verba única) · custo = pago + a pagar · estouro /
         economia = custo − valor agregado: positivo (vermelho) custou mais que o orçado pelo que foi executado, negativo
         (verde) custou menos; o % é sobre o valor agregado
       </div>
       {erro && <div className="kpi-sub">Não foi possível carregar: {erro}</div>}
       {!p && !erro && <div className="loading">Somando os lançamentos da semana...</div>}
+      {p && <ResumoVerbaForma v={p.totais.verba_forma} />}
       <div style={{ display: 'grid', gridTemplateColumns: GRUPO_COLS, gap: 12, padding: '0 4px 6px', fontFamily: 'var(--mono)',
                     fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: CINZA, borderBottom: '1px solid var(--border)' }}>
         <span />

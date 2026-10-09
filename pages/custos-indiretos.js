@@ -44,10 +44,16 @@ const VALOR = {
   desvio: c => c.realizado <= 0 && c.acumulado <= 0 ? null : c.desvio,
   desembolsado: c => c.pct_desembolsado,
 }
+// tipo da linha: reserva (pedido 14A: planejado = realizado até a verba) | recorrente | pontual
+const tipoInd = c => (c.reserva ? 'reserva' : c.recorrente ? 'recorrente' : 'pontual')
 const BLOCOS = [
-  { chave: 'p', recorrente: false, titulo: 'Pontuais (terreno, impostos, projetos, registros, taxas)', curto: 'pontuais' },
-  { chave: 'r', recorrente: true, titulo: 'Recorrentes (diluídos pela obra)', curto: 'recorrentes' },
+  { chave: 'pontual', titulo: 'Pontuais (terreno, impostos, projetos, registros, taxas)', curto: 'pontuais' },
+  { chave: 'recorrente', titulo: 'Recorrentes (diluídos pela obra)', curto: 'recorrentes' },
+  { chave: 'reserva', titulo: 'Reservas (só contam quando usadas)', curto: 'reservas' },
 ]
+// pontual com planejado e nada pago nem a pagar: ainda não aconteceu, não é economia (13E); vem da API (14A)
+const ehARealizar = c => (c.a_realizar != null ? !!c.a_realizar
+  : !c.recorrente && !c.reserva && c.acumulado > 0.005 && !(c.pago > 0.005) && !(c.a_pagar > 0.005))
 const TEXTO = { eap: true, categoria: true }   // primeiro clique: texto A→Z, números do maior para o menor
 
 export default function CustosIndiretos() {
@@ -119,32 +125,48 @@ export default function CustosIndiretos() {
   const somaInd = (ls) => {
     const t = { valor_total: 0, acumulado: 0, pago: 0, a_pagar: 0 }
     ls.forEach(c => Object.keys(t).forEach(k => { t[k] += Number(c[k]) || 0 }))
+    t.a_realizar = ls.filter(ehARealizar).reduce((x, c) => x + (Number(c.acumulado) || 0), 0)
     t.realizado = t.pago + t.a_pagar
     t.desvio = t.acumulado - t.realizado
     t.desvio_pct = t.acumulado > 0 ? 100 * t.desvio / t.acumulado : (t.realizado > 0 ? -100 : null)
     return t
   }
+  const sinalR = v => (v > 0.005 ? '+' : '') + fmtMoeda(v)
   const desvioCel = (c, aRealizar, peso) => (
     <td style={{ ...num, fontSize: 11, fontWeight: peso }}
-        title={c.realizado > 0 || c.acumulado > 0
+        title={c.reserva ? 'Reserva: planejado = realizado (pago + a pagar) até a verba; só mostra estouro se passar da verba'
+          : c.realizado > 0 || c.acumulado > 0
           ? `Planejado − (pago + a pagar)\n= ${fmtMoeda(c.acumulado)} − (${fmtMoeda(c.pago)} + ${fmtMoeda(c.a_pagar)})` : ''}>
-      {c.realizado <= 0 && c.acumulado <= 0 ? duasLinhas('—', null, 'var(--text3)')
+      {c.reserva && !(c.desvio < -0.005) ? duasLinhas('reserva', `${fmtPct(c.reserva_usada_pct || 0)} da verba usada`, 'var(--text3)')
+        : c.realizado <= 0 && c.acumulado <= 0 ? duasLinhas('—', null, 'var(--text3)')
         : aRealizar ? duasLinhas('a realizar', null, 'var(--text3)')
-        : duasLinhas((c.desvio > 0.005 ? '+' : '') + fmtMoeda(c.desvio), txtPct(c.desvio_pct), corDesvio(c.desvio))}
+        : duasLinhas(sinalR(c.desvio), txtPct(c.desvio_pct), corDesvio(c.desvio))}
     </td>
   )
+  // subtotal / total: desvio das linhas que mostram valor · a realizar · saldo (= planejado − realizado), pedido 14A
+  const desvioTotalCel = (t, peso) => {
+    if (!(t.a_realizar > 0.005)) return desvioCel(t, false, peso)
+    const visivel = t.desvio - t.a_realizar
+    return (
+      <td style={{ ...num, fontSize: 11, fontWeight: peso, lineHeight: 1.35 }}
+          title={`Saldo = planejado − (pago + a pagar) = ${fmtMoeda(t.desvio)}\n= desvio das linhas ${sinalR(visivel)} + a realizar ${fmtMoeda(t.a_realizar)} (pontuais planejados, ainda sem pagamento)`}>
+        <div style={{ color: corDesvio(visivel) }}>desvio {sinalR(visivel)}</div>
+        <div style={{ color: 'var(--text3)', fontWeight: 400 }}>a realizar {fmtMoeda(t.a_realizar)}</div>
+        <div style={{ color: corDesvio(t.desvio) }}>saldo {sinalR(t.desvio)}</div>
+      </td>
+    )
+  }
   const linha = (c) => {
     const lanc = c.lancamentos || []
     const on = linhaAberta === c.id
-    // pontual com planejado e nada pago nem a pagar: ainda não aconteceu, não é economia (13E)
-    const aRealizar = !c.recorrente && c.acumulado > 0.005 && !(c.pago > 0.005) && !(c.a_pagar > 0.005)
+    const aRealizar = ehARealizar(c)
     return (
       <React.Fragment key={c.id}>
         <tr onClick={() => lanc.length && setLinhaAberta(on ? null : c.id)} style={{ cursor: lanc.length ? 'pointer' : 'default' }}>
           <td style={{ ...celula, padding: '0 0 0 2px', fontSize: 10, color: 'var(--text3)' }}>{lanc.length > 0 ? (on ? '▾' : '▸') : ''}</td>
           <td style={{ ...celula, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{c.codigo_eap || '—'}</td>
           <td style={celula}>{c.categoria}</td>
-          <td style={{ ...celula, fontSize: 11, color: 'var(--text3)' }}>{c.recorrente ? 'recorrente' : 'pontual'}</td>
+          <td style={{ ...celula, fontSize: 11, color: 'var(--text3)' }}>{tipoInd(c)}</td>
           <td style={{ ...num, color: 'var(--text2)' }}>{fmtMoeda(c.valor_total)}</td>
           <td style={{ ...num, fontWeight: 600, color: vs ? AZUL : 'var(--accent)' }}>{c.acumulado > 0 ? fmtMoeda(c.acumulado) : vazio}</td>
           {vs && (
@@ -189,7 +211,7 @@ export default function CustosIndiretos() {
         <td style={{ ...num, fontWeight: peso, color: vs ? AZUL : 'var(--accent)' }}>{fmtMoeda(t.acumulado)}</td>
         {vs && <td style={{ ...num, fontWeight: peso, color: REALIZADO }}>{fmtMoeda(t.pago)}</td>}
         {vs && <td style={{ ...num, fontWeight: peso, color: t.a_pagar > 0.005 ? AMBAR : 'var(--text3)' }}>{t.a_pagar > 0.005 ? fmtMoeda(t.a_pagar) : '—'}</td>}
-        {vs && desvioCel(t, false, peso)}
+        {vs && desvioTotalCel(t, peso)}
         {!vs && <td style={{ ...num, fontWeight: peso }}>{fmtPct(t.valor_total > 0 ? 100 * t.acumulado / t.valor_total : 0, 0)}</td>}
       </tr>
     )
@@ -259,6 +281,7 @@ export default function CustosIndiretos() {
                       <div className="kpi-value" style={{ color: corDesvio(saldo) }}>{fmtMoeda(saldo)}</div>
                       <div className="kpi-sub" style={{ color: corDesvio(saldo) }}>
                         {saldo >= 0 ? 'Economia' : 'Estouro'} · planejado − realizado
+                        {d.a_realizar > 0.005 && <div>inclui {fmtMoeda(d.a_realizar)} a realizar</div>}
                       </div>
                     </div>
                     <div className="kpi" style={{ borderLeft: `3px solid ${corDesvio(d.desvio_pct)}` }}>
@@ -318,7 +341,7 @@ export default function CustosIndiretos() {
                       <col style={{ width: 128 }} />
                       {vs && <col style={{ width: 128 }} />}
                       {vs && <col style={{ width: 112 }} />}
-                      {vs && <col style={{ width: 128 }} />}
+                      {vs && <col style={{ width: 172 }} />}
                       {!vs && <col style={{ width: 170 }} />}
                     </colgroup>
                     <thead>
@@ -336,8 +359,8 @@ export default function CustosIndiretos() {
                       </tr>
                     </thead>
                     {BLOCOS.map(b => {
-                      const linhas = lista.filter(c => !!c.recorrente === b.recorrente)
-                      const todas = d.categorias.filter(c => !!c.recorrente === b.recorrente)
+                      const linhas = lista.filter(c => tipoInd(c) === b.chave)
+                      const todas = d.categorias.filter(c => tipoInd(c) === b.chave)
                       if (!todas.length) return null
                       return (
                         <tbody key={b.chave}>
@@ -359,7 +382,9 @@ export default function CustosIndiretos() {
                 <div className="notas-box" style={{ marginTop: 16 }}>
                   As <b>recorrentes</b> desembolsam um pouco a cada semana ao longo das {OBRA.prazo_semanas} semanas;
                   as <b>pontuais</b> concentram o desembolso no mês previsto. Os subtotais e o total geral somam todas as
-                  linhas do bloco, mesmo com a busca; o total geral bate com os cards.
+                  linhas do bloco, mesmo com a busca; o total geral bate com os cards. As <b>reservas</b> (verba que talvez
+                  nem seja usada) não são diluídas: o planejado acompanha o realizado até a verba, sem economia nem estouro.
+                  No subtotal, o <b>saldo</b> = desvio das linhas + <b>a realizar</b> (pontuais planejados ainda sem pagamento).
                 </div>
               </div>
             </>

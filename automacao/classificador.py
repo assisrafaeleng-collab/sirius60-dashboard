@@ -616,7 +616,7 @@ if __name__ == '__main__':
     # título baixado com valor baixado zero (ex.: cartão pré-pago): não há prova de pagamento, mas o
     # status é Baixado — vai para pendência para você confirmar, não some como "sem pagamento"
     duvida = (nao_custo.tipo == 'sem pagamento no relatório') & (nao_custo.baixa_sem_valor == True)
-    # pagamento já confirmado por você: decisão pontual com EAP (ex.: Caixa Cartões → 18.1.1, 08/10/2026)
+    # pagamento já confirmado por você: decisão pontual com EAP (ex.: Caixa Cartões → 19.1.25, antes 18.1.1)
     confirmados = set(zip(pontuais[pontuais.eap != 'NAO_CUSTO'].cnpj, pontuais[pontuais.eap != 'NAO_CUSTO'].documento))
     forcar = {k: 'baixado no TOTVS com VALORBAIXA 0: confirme o pagamento'
               for k, c, d in zip(nao_custo.loc[duvida, 'chave'], nao_custo.loc[duvida, 'cnpj'], nao_custo.loc[duvida, 'documento'])

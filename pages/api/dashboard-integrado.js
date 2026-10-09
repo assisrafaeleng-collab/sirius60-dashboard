@@ -1,7 +1,9 @@
 import { supabase, supabasePronto } from '../../lib/supabase'
 import { carregarCalendario } from '../../lib/calendario-servidor'
 import { OBRA, GRUPO_MAX_EVM, PREFIXOS_PRE_OBRA, EAP_CUSTO_DE_TEMPO, dataParaSemana, inicioSemana, fimSemana, ehCustoDeTempo } from '../../lib/constants'
-import { calendario, planejadoDoCalendario } from '../../lib/calendario'
+import { calendario, planejadoDoCalendario, datasDaSemana, fracaoPorDias } from '../../lib/calendario'
+import { lerIndiretosPlanejados, planejadoReserva } from '../../lib/indiretos-servidor'
+import { carregarContas } from '../../lib/painel-servidor'
 import { carregarMedicoes, carregarVinculos } from '../../lib/medicao-servidor'
 import { ordenarRetratos, percentuaisAte, heranca, chaveLinha } from '../../lib/medicao'
 
@@ -22,7 +24,7 @@ export default async function handler(req, res) {
   const semLimite = Math.min(Math.max(parseInt(req.query.semana) || PRAZO, 1), PRAZO)
 
   try {
-    const [finPlanRes, fisPlanRes, custosRes, horasRes, medicoes, vinc, indPlanRes, dirPlanRes] =
+    const [finPlanRes, fisPlanRes, custosRes, horasRes, medicoes, vinc, indPlanTodos, dirPlanRes, contas] =
       await Promise.all([
         supabase.from('v_curva_s_financeira_planejada').select('*').eq('obra_id', obra_id).order('semana_numero'),
         supabase.from('v_curva_s_fisica_planejada').select('*').eq('obra_id', obra_id).order('semana_numero'),
@@ -31,25 +33,27 @@ export default async function handler(req, res) {
         // medições: retratos acumulados (tabela nova) ou incrementos somados (antes do SQL) — lib/medicao-servidor
         carregarMedicoes(supabase),
         carregarVinculos(supabase),
-        supabase.from('custos_indiretos_planejados').select('valor_total, recorrente, semana_desembolso, semana_fim').eq('obra_id', obra_id),
+        // com a coluna reserva quando existe (SQL 6, pedido 14A)
+        lerIndiretosPlanejados(supabase, 'codigo_eap, valor_total, recorrente, semana_desembolso, semana_fim'),
         supabase.from('orcamento_planejado').select('id, codigo_eap, pavimento, descricao, preco_total, hh, grupo_num, semana_inicio, semana_fim').eq('obra_id', obra_id),
+        carregarContas(supabase, datasDaSemana(semLimite).data_fim),
       ])
 
-    for (const r of [finPlanRes, fisPlanRes, custosRes, horasRes, indPlanRes, dirPlanRes]) {
+    for (const r of [finPlanRes, fisPlanRes, custosRes, horasRes, dirPlanRes]) {
       if (r.error) throw new Error(r.error.message)
     }
 
     // Planejado: com o calendário novo (curva_s_semanal_planejada), físico pelas horas do cronograma e financeiro
     // pela curva + custo de tempo e indiretos espalhados pelos dias; sem ele, as views antigas, como antes.
     const novo = calendario().curva
-      ? planejadoDoCalendario(dirPlanRes.data || [], indPlanRes.data || [], (i) => ehCustoDeTempo(i))
+      ? planejadoDoCalendario(dirPlanRes.data || [], indPlanTodos.filter(i => !i.reserva), (i) => ehCustoDeTempo(i))
       : null
     const finPlan = novo ? novo.finPlan : (finPlanRes.data || [])
     const fisPlan = novo ? novo.fisPlan : (fisPlanRes.data || [])
     const lancamentos = custosRes.data || []
     const horas = horasRes.data || []
     const retratos = ordenarRetratos(medicoes.retratos).filter(r => r.semana_numero <= semLimite)
-    const indiretosPlan = indPlanRes.data || []
+    const indiretosPlan = indPlanTodos   // totais: inclui a verba das reservas
     const diretosPlan = dirPlanRes.data || []
 
     // ---------- BASES ORÇAMENTÁRIAS ----------
@@ -188,8 +192,26 @@ export default async function handler(req, res) {
     const finPlanAte = finPlan.find(f => f.semana_numero === semLimite)
       || finPlan[finPlan.length - 1]
     const diretoPlanAte = finPlanAte ? parseFloat(finPlanAte.valor_direto_acumulado) : 0
-    const indiretoPlanAte = finPlanAte
-      ? parseFloat(finPlanAte.valor_acumulado) - diretoPlanAte : 0
+    // indireto: diluído pela curva + reservas (planejado = realizado até a verba; pedido 14A)
+    const realizadoIndPorEap = {}
+    pagos.forEach(l => {
+      const sem = semanaDoLancamento(l), eap = l.codigo_eap || ''
+      if (!sem || sem > semLimite || !eap.startsWith('19.')) return
+      realizadoIndPorEap[eap] = (realizadoIndPorEap[eap] || 0) + parseFloat(l.valor || 0)
+    })
+    const aPagarIndPorEap = {}
+    ;(contas.linhas || []).filter(c => c.classe === 'indireto')
+      .forEach(c => { aPagarIndPorEap[c.codigo_eap] = (aPagarIndPorEap[c.codigo_eap] || 0) + parseFloat(c.valor || 0) })
+    const reservaPlanAte = indPlanTodos.filter(i => i.reserva).reduce((t, i) =>
+      t + planejadoReserva(parseFloat(i.valor_total || 0), (realizadoIndPorEap[i.codigo_eap] || 0) + (aPagarIndPorEap[i.codigo_eap] || 0)), 0)
+    const indiretoPlanAte = (finPlanAte
+      ? parseFloat(finPlanAte.valor_acumulado) - diretoPlanAte : 0) + reservaPlanAte
+    // a realizar: pontuais com planejado até a semana e nada pago nem a pagar (fica dentro do saldo do indireto)
+    const indiretoARealizar = indPlanTodos.filter(i => !i.recorrente && !i.reserva).reduce((t, i) => {
+      const plan = parseFloat(i.valor_total || 0) * fracaoPorDias(i.semana_desembolso, i.semana_fim ?? i.semana_desembolso, semLimite)
+      const usado = (realizadoIndPorEap[i.codigo_eap] || 0) + (aPagarIndPorEap[i.codigo_eap] || 0)
+      return t + (plan > 0.005 && !(usado > 0.005) ? plan : 0)
+    }, 0)
 
     // ---------- EVM ----------
     // A referência é SEMPRE a semana do filtro (data de status do relatório),
@@ -332,6 +354,7 @@ export default async function handler(req, res) {
         custo_indireto_realizado: ult ? ult.valor_indireto : 0,
         custo_direto_planejado_ate: +diretoPlanAte.toFixed(2),
         custo_indireto_planejado_ate: +indiretoPlanAte.toFixed(2),
+        custo_indireto_a_realizar: +indiretoARealizar.toFixed(2),
         tem_medicao: fisReal.length > 0,
         previsto_ate: +(diretoPlanAte + indiretoPlanAte).toFixed(2),
         realizado_ate: +realizadoTotal.toFixed(2),

@@ -94,7 +94,7 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   carga → 16 retratos. Em S11: avanço 4,71% → 4,65% (−30 h), valor agregado direto −R$ 40.000,00. Até o SQL rodar,
   o site (fallback dos incrementos antigos) ainda conta a 15.1.4 em 20%.
 - Valor agregado (lib/valor-agregado.js, /api/painel): serviço = % × orçado; material = maior entre % herdado ×
-  orçado e comprometido limitado ao orçado; locação (17) = pago limitado à verba; tempo (1.1.6 e 18) = verba ×
+  orçado e comprometido limitado ao orçado; locação (17) = pago limitado à verba; tempo (1.1.6) = verba ×
   dias decorridos ÷ dias da obra. Custo comprometido = pago até o fim da semana + a pagar (direto, não recorrente)
   do último fechamento cujo último dia já passou. Pagamento sem pavimento é rateado entre as linhas da EAP pelo orçado.
 - public/dados.json saiu do site e do git (pedido 13); cópia em backup_seguranca_2026-10-07\.
@@ -102,9 +102,21 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   VALOR AGREGADO (% de avanço físico da linha × valor orçado da linha; material pela regra do material), e NÃO com o
   planejado do cronograma. O planejado fica só como informação secundária ("ritmo de gasto vs cronograma").
   Colunas: Orçado | Valor agregado | Custo (pago e a pagar) | % do orçado | Estouro/economia | Saldo da verba.
-- Grupo 18 (Mão de Obra Direta, R$ 428.131,20) (Rafael, 08/10): verba para mão de obra PRÓPRIA, que a princípio
-  não vai ser contratada (a mão de obra real está nos serviços do grupo 2 em diante). Por enquanto FICA como está
-  (valor agregado = verba linear, mesmo gerando "economia" sem custo); pode ser retirada depois.
+- VERBA DE FORMA (pedido 14A, Rafael 09/10): a madeira de forma é reaproveitada (até 3 usos) na estrutura toda, então
+  as 13 linhas de MATERIAL de forma (inclusive forma de escada) são UMA verba de R$ 311.278,36, por id (lib/valor-agregado.js
+  VERBA_FORMA_IDS: 2.1.3, 2.1.11, 3.1.6, 3.1.9, 3.2.6, 3.2.9, 3.3.6, 3.3.8, 3.4.5 [id 720], 3.4.8, 3.5.6, 3.6.6, 3.7.6).
+  Custo: o pago + a pagar de qualquer uma delas é o gasto da verba, e cada linha mostra gasto × (orçado ÷ verba); os
+  lançamentos continuam gravados na linha original (só cálculo/tela; nível 3 com a nota "verba de forma rateada").
+  Valor agregado: % do serviço vinculado × orçado, SEM compra antecipada. Material comprado à frente aparece como
+  estouro até o serviço avançar (dica na tela). As demais regras de material não mudam.
+- Grupo 18 → INDIRETO (pedido 14A, Rafael 09/10): 18.1.1 "Mão de Obra Direta" (R$ 428.131,20) sai do direto e vira
+  19.1.25 "Mão de obra de apoio (se houver necessidade)", tipo RESERVA (coluna custos_indiretos_planejados.reserva):
+  planejado NÃO diluído, planejado = realizado (pago + a pagar) até a verba, "reserva · N% da verba usada"; só gera
+  estouro se passar da verba. SQL: supabase/orcamento/6-grupo18-para-indireto.sql (direto 334 → 333 linhas,
+  7.123.256,27; indireto 14 linhas, 2.874.508,08; total 9.997.764,35). O grupo 18 deixa de existir no direto.
+  Antes do SQL o site funciona como antes (sem a coluna, nenhuma linha é reserva).
+- Indiretos "a realizar" (pedido 14A): pontual com planejado até a semana e nada pago nem a pagar. Subtotal e total
+  mostram "desvio · a realizar · saldo"; o card "Saldo custo indireto" mostra "inclui R$ X a realizar".
 - Indiretos (Rafael, 08/10): recorrentes (engenheiro, contabilidade, IPTU, despesas bancárias…) diluídos linearmente
   pela obra toda; pontuais (terreno, ITBI, projetos, registro, taxas) no mês previsto, convertendo a semana antiga
   para a nova pela data.
@@ -155,8 +167,8 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   - Terraplanagem (Luciano José Perdigão) → 2.1.1.
   - Aço (Gerdau, Fortaleza) → 2.1.4. Viferro e Cofermeta → 17.1.10. Padaria → 17.1.12.
   - Impressões/cópias (Copiadora Realce) → linha de projeto estrutural do grupo 19.
-  - Caixa Cartões (cartão pré-pago/alimentação de funcionário, R$ 700,00 em 08/2026) → 18.1.1 (custo),
-    decisão do Rafael 08/10 (antes era NAO_CUSTO).
+  - Caixa Cartões (cartão pré-pago/alimentação de funcionário, R$ 700,00 em 08/2026) → 19.1.25 (mão de obra de
+    apoio, indireto/reserva; Rafael 09/10, pedido 14A). Antes: 18.1.1 (08/10) e, antes disso, NAO_CUSTO.
   - Combustível da obra (Auto Posto; gasolina do carro de apoio) → 17.1.14 (no orçamento final:
     "Gasolina Carro Vandinho", R$ 24.000,00).
   - Areial Mariana (pedra de mão usada na concretagem dos fustes, no lugar de concreto) → 2.1.5
@@ -224,7 +236,8 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
 - Implementação da regra da data: data de baixa vazia OU data de baixa > último dia do fechamento.
 
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
-- Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 18.
+- Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 17 (o grupo 18 foi para o indireto
+  como 19.1.25 no pedido 14A).
 - Avanço físico = horas executadas ÷ horas orçadas (nunca ponderado por valor).
 - Medição = último % acumulado de cada linha, por código + pavimento.
 - Custo nos indicadores sempre comprometido (pago + a pagar).

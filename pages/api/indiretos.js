@@ -3,8 +3,9 @@ import { carregarCalendario } from '../../lib/calendario-servidor'
 import { OBRA, dataParaSemana } from '../../lib/constants'
 import { datasDaSemana, fracaoPorDias } from '../../lib/calendario'
 import { carregarContas } from '../../lib/painel-servidor'
+import { lerIndiretosPlanejados, planejadoReserva } from '../../lib/indiretos-servidor'
 
-// Custos indiretos: planejado × realizado (pedido 13D).
+// Custos indiretos: planejado × realizado (pedido 13D; reserva e a realizar no pedido 14A).
 // Planejado: cada categoria espalhada pelos DIAS das suas semanas (recorrentes de S01 ao fim da obra; pontuais nas
 // semanas do mês previsto) — fracaoPorDias, a MESMA conta da Visão geral (lib/calendario.js planejadoDoCalendario).
 // Realizado = pago (lançamentos 19.x até o fim da semana) + a pagar (contas a pagar de classe indireto do último
@@ -22,19 +23,16 @@ export default async function handler(req, res) {
                           OBRA.prazo_semanas)
   const detalhe = req.query.detalhe === '1'
   try {
-    const [planRes, lancRes, contas] = await Promise.all([
-      supabase.from('custos_indiretos_planejados')
-        .select('id, categoria, codigo_eap, valor_total, semana_desembolso, semana_fim, recorrente')
-        .eq('obra_id', OBRA.id),
+    const [plan, lancRes, contas] = await Promise.all([
+      // com a coluna reserva quando ela existe (SQL 6, pedido 14A)
+      lerIndiretosPlanejados(supabase, 'id, categoria, codigo_eap, valor_total, semana_desembolso, semana_fim, recorrente'),
       supabase.from('custos_lancamentos')
         .select('codigo_eap, valor, status, data_emissao, competencia, fornecedor, historico, num_documento')
         .eq('obra_id', OBRA.id).like('codigo_eap', '19.%'),
       carregarContas(supabase, datasDaSemana(semana).data_fim),
     ])
-    if (planRes.error) throw new Error(planRes.error.message)
     if (lancRes.error) throw new Error(lancRes.error.message)
 
-    const plan = planRes.data || []
     const conta = s => s !== 'previsto' && s !== 'cancelado'
     const lanc = (lancRes.data || []).filter(l => conta((l.status || '').toLowerCase()))
 
@@ -80,8 +78,10 @@ export default async function handler(req, res) {
     const linha = (base) => {
       const realizado = base.pago + base.a_pagar
       const desvio = base.acumulado - realizado
+      // a realizar (pedido 13E/14A): pontual com planejado até a semana e nada pago nem a pagar — não é economia
+      const aRealizar = !base.recorrente && !base.reserva && base.acumulado > 0.005 && !(base.pago > 0.005) && !(base.a_pagar > 0.005)
       return {
-        ...base,
+        ...base, a_realizar: aRealizar,
         pago: +base.pago.toFixed(2), a_pagar: +base.a_pagar.toFixed(2), realizado: +realizado.toFixed(2),
         desvio: +desvio.toFixed(2),
         desvio_pct: base.acumulado > 0 ? +(100 * desvio / base.acumulado).toFixed(1) : (realizado > 0 ? -100 : null),
@@ -91,12 +91,15 @@ export default async function handler(req, res) {
       const v = parseFloat(i.valor_total || 0)
       const ini = i.semana_desembolso
       const fim = i.semana_fim || i.semana_desembolso
-      const planAte = v * fracaoPorDias(ini, fim, semana)
-      const naSemana = v * (fracaoPorDias(ini, fim, semana) - fracaoPorDias(ini, fim, semana - 1))
+      const pago = pagoPorEap[i.codigo_eap] || 0, ap = aPagarPorEap[i.codigo_eap] || 0
+      // reserva: planejado = realizado até a verba (não diluído); as demais pelos dias das semanas
+      const planAte = i.reserva ? planejadoReserva(v, pago + ap) : v * fracaoPorDias(ini, fim, semana)
+      const naSemana = i.reserva ? 0 : v * (fracaoPorDias(ini, fim, semana) - fracaoPorDias(ini, fim, semana - 1))
       return linha({
         id: i.id, categoria: i.categoria, codigo_eap: i.codigo_eap,
         valor_total: +v.toFixed(2), semana_inicio: ini, semana_fim: fim,
-        recorrente: i.recorrente,
+        recorrente: !!i.recorrente, reserva: i.reserva,
+        reserva_usada_pct: i.reserva && v > 0 ? +(100 * (pago + ap) / v).toFixed(1) : null,
         na_semana: +naSemana.toFixed(2),
         acumulado: +planAte.toFixed(2),
         pago: pagoPorEap[i.codigo_eap] || 0,
@@ -113,7 +116,7 @@ export default async function handler(req, res) {
       if (conhecidas.has(eap)) return
       categorias.push(linha({
         id: 'x' + eap, categoria: 'Fora do orçamento', codigo_eap: eap,
-        valor_total: 0, semana_inicio: null, semana_fim: null, recorrente: false,
+        valor_total: 0, semana_inicio: null, semana_fim: null, recorrente: false, reserva: false,
         na_semana: 0, acumulado: 0, pago: pagoPorEap[eap] || 0, a_pagar: aPagarPorEap[eap] || 0,
         pct_do_total: 0, pct_desembolsado: 0,
         ...(detalhe ? { lancamentos: detPorEap[eap] || [] } : {}),
@@ -123,6 +126,7 @@ export default async function handler(req, res) {
     const planAteTotal = categorias.reduce((s, c) => s + c.acumulado, 0)
     const realizadoTotal = pagoTotal + aPagarTotal
     const desvioTotal = planAteTotal - realizadoTotal
+    const aRealizarTotal = categorias.filter(c => c.a_realizar).reduce((s, c) => s + c.acumulado, 0)
 
     return res.status(200).json({
       semana,
@@ -135,6 +139,7 @@ export default async function handler(req, res) {
       realizado_ate: +realizadoTotal.toFixed(2),
       desvio: +desvioTotal.toFixed(2),
       desvio_pct: planAteTotal > 0 ? +(100 * desvioTotal / planAteTotal).toFixed(1) : null,
+      a_realizar: +aRealizarTotal.toFixed(2),   // parte do saldo que é pontual ainda não acontecido
       fechamento: contas.fechamento || null,
       qtd_lancamentos: qtdLanc,
       categorias,

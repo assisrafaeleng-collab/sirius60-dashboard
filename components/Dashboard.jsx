@@ -247,8 +247,11 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
   const c7 = { l: 'Custo indireto realizado ↗', c: REAL, pill: true, v: fmt2(indiretoReal), link: `/custos-indiretos?semana=${semana}`,
     s: <>{indiretoPlan > 0 ? `${pc1(100 * indiretoReal / indiretoPlan)} do planejado (pago + a pagar)` : '—'}
       <div>pago {fmt2(indiretoPago)} · a pagar {fmt2(aPagarIndireto)}</div></> }
+  const aRealizarInd = k.custo_indireto_a_realizar || 0   // pontuais planejados ainda sem pagamento (pedido 14A)
   const c8 = { l: 'Saldo custo indireto', v: fmt2(saldoIndireto), c: cor(saldoIndireto),
-    s: saldoIndireto >= 0 ? 'Economia' : 'Estouro', cs: cor(saldoIndireto) }
+    s: (saldoIndireto >= 0 ? 'Economia' : 'Estouro') + (aRealizarInd > 0.005 ? ` · inclui ${fmt2(aRealizarInd)} a realizar` : ''),
+    cs: cor(saldoIndireto),
+    title: aRealizarInd > 0.005 ? `Planejado − realizado. Inclui ${fmt2(aRealizarInd)} de pontuais planejados até ${sRef} e ainda não pagos (a realizar): não é economia de verdade.` : undefined }
   const c9 = { l: '% Desvio do custo indireto', v: pctIndireto == null ? '—' : sinal(pctIndireto), c: cor(pctIndireto),
     s: pctIndireto == null ? '—' : `${pctIndireto >= 0 ? 'Economia' : 'Estouro'} sobre o planejado · até ${sRef}`,
     title: `Saldo do indireto ÷ indireto planejado\n${fmt2(saldoIndireto)} ÷ ${fmt2(indiretoPlan)}` }

@@ -129,3 +129,41 @@ export function somar(ls) {
   t.custo = t.pago + t.a_pagar
   return t
 }
+
+// Resumo da VERBA DE FORMA (material) — pedido 14A: as 13 linhas de material de forma são uma verba única
+// (reaproveitamento da madeira). v = painel.totais.verba_forma. Gasto acima do valor agregado e abaixo da verba é
+// material comprado antes da execução: aparece como estouro até o serviço avançar (com a dica).
+export function ResumoVerbaForma({ v }) {
+  if (!v || !(v.verba > 0)) return null
+  const pv = (x) => fmtP((100 * x) / v.verba)
+  const e = estouroDe(v.agregado, v.gasto)
+  const antecipado = v.gasto > v.agregado + 0.005 && v.gasto < v.verba
+  const cel = { textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12 }
+  const rot = { fontSize: 10, color: CINZA, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.06em' }
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', margin: '0 0 14px',
+                  display: 'grid', gridTemplateColumns: 'minmax(160px,1fr) repeat(5, minmax(110px, auto))', gap: '4px 18px',
+                  alignItems: 'center' }}>
+      <div style={{ fontWeight: 600, fontSize: 12 }}>
+        VERBA DE FORMA (material)
+        <div style={{ fontSize: 11, fontWeight: 400, color: CINZA }}>{v.linhas} linhas · madeira reaproveitada na estrutura</div>
+      </div>
+      <div style={cel}><div style={rot}>Verba</div>{fmtMoeda(v.verba)}</div>
+      <div style={cel} title={`pago ${fmtMoeda(v.pago)} + a pagar ${fmtMoeda(v.a_pagar)}`}>
+        <div style={rot}>Gasto (pago + a pagar)</div>{fmtMoeda(v.gasto)}<div style={{ fontSize: 10, color: CINZA }}>{pv(v.gasto)} da verba</div>
+      </div>
+      <div style={{ ...cel, color: PLAN }}><div style={rot}>Valor agregado</div>{fmtMoeda(v.agregado)}<div style={{ fontSize: 10, color: CINZA }}>{pv(v.agregado)} da verba</div></div>
+      <div style={{ ...cel, color: corEstouro(e) }} title={tituloEstouro(e, v.agregado, v.pago, v.a_pagar)}>
+        <div style={rot}>Estouro / economia</div>{e == null ? '—' : fmtEstouroRs(e.rs)}
+        <div style={{ fontSize: 10 }}>{e == null ? '' : fmtEstouroPerc(e.perc)}</div>
+      </div>
+      <div style={{ ...cel, color: v.saldo < -0.005 ? VERMELHO : 'var(--text)' }}><div style={rot}>Saldo da verba</div>{fmtMoeda(v.saldo)}</div>
+      {antecipado && (
+        <div style={{ gridColumn: '1 / -1', fontSize: 11, color: CINZA }}>
+          Material comprado antes da execução (reaproveitamento): o gasto passa do valor agregado até o serviço de forma
+          avançar; ainda dentro da verba.
+        </div>
+      )}
+    </div>
+  )
+}
