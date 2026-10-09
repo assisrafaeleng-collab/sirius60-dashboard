@@ -288,8 +288,13 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   ritmo atual e caixa do período. DATAS por atividade: planejado (início → fim) · no ritmo atual (% concluído ÷ dias
   úteis desde a 1ª medição — com uma só, desde o início planejado — até a última; fim = última + falta ÷ ritmo) · com
   N equipes. Sem medição: "não iniciada" / "deveria ter começado em".
-- CAIXA (Rafael 09/10): % a executar no período (cronograma no fim do período − concluído; com equipes definidas, o que
-  elas concluem) × (orçado do serviço + orçado dos materiais vinculados), descontando material comprado além do
+- CAIXA (Rafael 09/10; corrigido no mesmo dia): % a executar no período segue o MESMO plano das equipes do término.
+  Com equipes e índice — definidas pelo Rafael (salvas ou digitadas na tela; recalcula na hora): o nº inteiro; só
+  SUGERIDAS: as equipes necessárias para terminar na data-alvo, com fração (Rafael 09/10: 1 equipe inteira terminava
+  atividades pequenas muito antes do cronograma e puxava serviço e material para a semana) — (equipes × pessoas × 8 h × dias úteis do
+  período) ÷ horas por 1% (horas que faltam ÷ % que falta), limitado ao que falta. Sem equipe ou sem índice: ritmo do
+  cronograma no período + atraso diluído em 30 dias (fração dias úteis do período ÷ dias úteis dos 30 dias), nunca o
+  atraso inteiro de uma vez (era o erro: 2.1.2 com 30% numa semana). O % × (orçado do serviço + orçado dos materiais vinculados), descontando material comprado além do
   executado (verba de forma: o excesso da verba inteira abate o material de forma, em ordem de término). Topo: caixa da
   semana e de 30 dias = serviços + materiais + contas a pagar lançadas com vencimento no período + indiretos recorrentes
   (planejado); ao lado, em cinza, a curva do cronograma. Premissa: valor do serviço executado; prazos de pagamento de

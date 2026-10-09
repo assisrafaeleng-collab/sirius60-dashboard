@@ -7,7 +7,7 @@
 // histórico. Hooks no topo (erro #310). Nada inventado: campo vazio em amarelo para preencher.
 import React, { useEffect, useState } from 'react'
 import { fmtP1, fmtMoeda2, CORES_VA, rotuloPavimento } from '../lib/constants'
-import { calcularTermino, pctNoPeriodo, caixaAtividade } from '../lib/pontos-atencao'
+import { calcularTermino, pctNoPeriodo, caixaAtividade, equipesDoCaixa } from '../lib/pontos-atencao'
 import { fetchComSenhaSemJanela, temSenha } from '../lib/fetch-com-senha'
 import Desbloqueio from './Desbloqueio'
 
@@ -65,11 +65,14 @@ export default function PontosAtencao({ semana }) {
     const equipes = e.equipes !== undefined && e.equipes !== '' ? e.equipes : a.equipes_definidas
     const t = calcularTermino({ quantidade: a.quantidade, real: a.real, indice: mudouIx ? e.indice : a.indice,
       horasTotal: mudouIx ? null : a.horas_total, pessoas, equipes, fimCrono: a.fim_crono, hoje: d.hoje, jornada: d.jornada, feriados: d.feriados })
+    // caixa pelo plano das equipes do término: definidas (editadas na tela > salvas) pelo nº inteiro; só sugeridas, as
+    // necessárias para terminar na data-alvo (com fração). Mudar o nº de equipes muda o % e o caixa na hora; sem equipe/índice, cronograma + atraso diluído em 30 dias
     const caixa = (per) => {
-      const pct = pctNoPeriodo({ real: a.real, planFim: per === 'semana' ? a.plan_fim_semana : a.plan_fim_mes, base: t.base, pessoas,
-        equipes, diasPeriodo: d.periodos[per].dias_uteis, horasDia: d.jornada.horas_dia })
+      const det = pctNoPeriodo({ real: a.real, planHoje: a.plan_hoje, planFim: per === 'semana' ? a.plan_fim_semana : a.plan_fim_mes,
+        base: t.base, pessoas, equipes: equipesDoCaixa(t), diasPeriodo: d.periodos[per].dias_uteis, diasMes: d.periodos.mes.dias_uteis,
+        horasDia: d.jornada.horas_dia })
       // materiais com o desconto da verba de forma já repartido no servidor para o período
-      return { pct, ...caixaAtividade({ pct, orcado: a.orcado, materiais: (per === 'semana' ? a.materiais_semana : a.materiais_mes) || a.materiais_caixa }) }
+      return { pct: det.pct, detalhe: det, ...caixaAtividade({ pct: det.pct, orcado: a.orcado, materiais: (per === 'semana' ? a.materiais_semana : a.materiais_mes) || a.materiais_caixa }) }
     }
     return { t, cxSemana: caixa('semana'), cxMes: caixa('mes') }
   }
@@ -266,7 +269,11 @@ export default function PontosAtencao({ semana }) {
               <b>Memória de cálculo</b> · horas que faltam = (100% − {fmtP1(a.real)}) × {a.horas_total != null && !mudouIx ? `${nf(a.horas_total, 0)} Hh (duração)` : `${nf(a.quantidade, 1)} ${a.unidade} × índice`}
               {' '}= {nf(t.horas, 0)} Hh · 1 equipe = {t.capacidade_dia ?? '—'} Hh/dia · data-alvo {dmy(t.alvo)} ({diasUt(t.dias_ate_alvo)}) · sugerido {t.sugeridas ?? '—'} equipe(s)
               <br />Ritmo atual: {rt.nao_iniciada ? 'sem medição' : `${nf(rt.ritmo, 2)}% por dia útil, de ${dmy(rt.inicio_real)} até a última medição ${dmy(rt.ultima)}`}
-              <br />Caixa {perDaAba === 'semana' ? 'da semana' : 'em 30 dias'}: {nf(cx.pct, 1)}% × (serviço {rs(a.orcado)}
+              <br />Caixa {perDaAba === 'semana' ? 'da semana' : 'em 30 dias'}: {cx.detalhe && cx.detalhe.modo === 'equipes'
+                ? <>{t.definida ? `${cx.detalhe.equipes} equipe${cx.detalhe.equipes === 1 ? '' : 's'}` : `${nf(cx.detalhe.equipes, 2)} equipes (necessárias para terminar em ${dmy(t.alvo)}; sugerido ${t.sugeridas} inteira${t.sugeridas === 1 ? '' : 's'})`} × {cx.detalhe.pessoas} pessoas × {cx.detalhe.horas_dia} h × {diasUt(cx.detalhe.dias)} = {nf(cx.detalhe.hh, 0)} Hh
+                  ÷ {nf(cx.detalhe.horas_por_pct, 3)} Hh por 1% = {nf(cx.detalhe.hh / cx.detalhe.horas_por_pct, 1)}%{cx.detalhe.limitado ? ` (limitado ao que falta, ${nf(cx.pct, 1)}%)` : ''} {t.definida ? ' (mesmo plano do término)' : ''}</>
+                : cx.detalhe ? <>ritmo do período {nf(cx.detalhe.ritmo, 1)}% + recuperação do atraso {nf(cx.detalhe.atraso, 1)}% ({nf(cx.detalhe.atraso_total, 1)}% × {cx.detalhe.dias}/{cx.detalhe.dias_mes} dias úteis){cx.detalhe.limitado ? `, limitado ao que falta` : ''}</> : null}
+              {' '}= {nf(cx.pct, 1)}% × (serviço {rs(a.orcado)}
               {a.materiais_caixa.length > 0 && <> + materiais {((perDaAba === 'semana' ? a.materiais_semana : a.materiais_mes) || a.materiais_caixa).map((m) => `${m.codigo_eap} ${rs(m.orcado)}${m.excesso > 0.005 ? ` − ${m.verba_forma ? 'verba de forma já comprada' : 'já comprado além do executado'} ${rs(m.excesso)}` : ''}`).join(' + ')}</>}) = {rs(cx.total)}
               <br />Em 30 dias: manter o ritmo {nf(a.mes.horas_ritmo, 0)} Hh · recuperar o atraso {nf(a.mes.horas_atraso, 0)} Hh · horas da linha no orçamento {nf(a.hh, 1)} Hh
               {a.cronograma_curto && <> · <span style={{ color: AMBAR }}>cronograma curto: prevê {nf(a.cronograma_curto.horas_cronograma, 0)} h, pelo índice são {nf(a.cronograma_curto.horas_indice, 0)} h</span></>}
