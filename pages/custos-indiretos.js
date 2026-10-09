@@ -1,8 +1,9 @@
 import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { useEffect, useMemo, useState } from 'react'
-import { OBRA, fmtMoeda2, fmtP1, CORES_VA, semanaLabel,
+import React, { useEffect, useMemo, useState } from 'react'
+import ListaLancamentos from '../components/ListaLancamentos'
+import { OBRA, CORES, fmtMoeda2, fmtP1, CORES_VA, semanaLabel,
          inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
 
 // Pedido 13D: valores com 2 casas e % com 1 casa; desvio com o sinal da Visão geral e do Flats
@@ -12,7 +13,7 @@ const fmtPct = (v) => fmtP1(v)
 const { economia: VERDE, estouro: VERMELHO, aPagar: AMBAR } = CORES_VA
 
 const AZUL = '#5B9BD5'
-const REALIZADO = '#a99cf0'   // lavanda (pedido 13D)
+const REALIZADO = CORES.realizado   // branco (pedido 13E)
 
 const ORDENS = [
   { v: 'acumulado', l: 'Maior acumulado' },
@@ -29,6 +30,7 @@ export default function CustosIndiretos() {
   const [busca, setBusca] = useState('')
   const [ordem, setOrdem] = useState('acumulado')
   const [visao, setVisao] = useState('vs')   // 'vs' = planejado x realizado | 'plan'
+  const [linhaAberta, setLinhaAberta] = useState(null)   // lançamentos abertos (id da categoria); tudo recolhido
 
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())
@@ -36,7 +38,7 @@ export default function CustosIndiretos() {
 
   useEffect(() => {
     setD(null); setErro(null)
-    fetch(`/api/indiretos?semana=${semana}`).then(r => r.json())
+    fetch(`/api/indiretos?semana=${semana}&detalhe=1`).then(r => r.json())
       .then(j => j.error ? setErro(j.message || j.error) : setD(j))
       .catch(e => setErro(e.message))
   }, [semana])
@@ -184,10 +186,18 @@ export default function CustosIndiretos() {
                       </tr>
                     </thead>
                     <tbody>
-                      {lista.map(c => (
-                        <tr key={c.id}>
+                      {lista.map(c => {
+                        const lanc = c.lancamentos || []
+                        const on = linhaAberta === c.id
+                        // pontual com planejado e nada pago nem a pagar: ainda não aconteceu, não é economia (13E)
+                        const aRealizar = !c.recorrente && c.acumulado > 0.005 && !(c.pago > 0.005) && !(c.a_pagar > 0.005)
+                        return (
+                        <React.Fragment key={c.id}>
+                        <tr onClick={() => lanc.length && setLinhaAberta(on ? null : c.id)}
+                            style={{ cursor: lanc.length ? 'pointer' : 'default' }}>
                           <td style={{ fontFamily: 'var(--mono)', fontSize: 11,
                                        color: 'var(--text3)' }}>
+                            {lanc.length > 0 && <span style={{ marginRight: 4 }}>{on ? '▾' : '▸'}</span>}
                             {c.codigo_eap || '—'}
                           </td>
                           <td>
@@ -223,7 +233,9 @@ export default function CustosIndiretos() {
                                 title={c.realizado > 0 || c.acumulado > 0
                                   ? `Planejado − (pago + a pagar)
 = ${fmtMoeda(c.acumulado)} − (${fmtMoeda(c.pago)} + ${fmtMoeda(c.a_pagar)})` : ''}>
-                              {c.realizado <= 0 && c.acumulado <= 0 ? '—' : (
+                              {c.realizado <= 0 && c.acumulado <= 0 ? '—' : aRealizar ? (
+                                <span style={{ color: 'var(--text3)' }} title="Pontual planejado até a semana, sem nada pago nem a pagar">a realizar</span>
+                              ) : (
                                 <>
                                   {(c.desvio > 0.005 ? '+' : '') + fmtMoeda(c.desvio)}
                                   <div style={{ fontSize: 10 }}>{txtPct(c.desvio_pct)}</div>
@@ -249,7 +261,16 @@ export default function CustosIndiretos() {
                             </td>
                           )}
                         </tr>
-                      ))}
+                        {on && (
+                          <tr>
+                            <td colSpan={vs ? 7 : 5} style={{ padding: 0 }}>
+                              <ListaLancamentos lancamentos={lanc} rotuloPago={false} />
+                            </td>
+                          </tr>
+                        )}
+                        </React.Fragment>
+                        )
+                      })}
                     </tbody>
                   </table>
                 )}

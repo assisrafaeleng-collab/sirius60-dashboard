@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, fmtMoeda2, fmtP1, CORES_VA, semanaLabel , ehCustoDeTempo } from '../lib/constants'
+import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, fmtMoeda2, fmtP1, CORES, CORES_VA, semanaLabel , ehCustoDeTempo } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
 import MapaPavimentos from './MapaPavimentos'
 import FisicoPorAtividade from './FisicoPorAtividade'
@@ -137,7 +137,7 @@ const sinal = v => (v >= 0 ? '+' : '') + pc1(v)
 const S2 = n => 'S' + String(n).padStart(2, '0')
 const dmy = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—'
 const VERDE = CORES_VA.economia, VERMELHO = CORES_VA.estouro
-const PLAN = CORES_VA.agregado, REAL = '#a99cf0'   // realizado = lavanda (pedido 13D)
+const PLAN = CORES_VA.agregado, REAL = CORES.realizado   // realizado = branco (pedido 13E)
 const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px', borderRadius: 6 }
 
 // Adiantamento (Flats): curva = semanas_alinhadas (hh_planejado = curva do cronograma, hh_realizado = medições)
@@ -373,11 +373,11 @@ function CurvaS({ semanas, semAtual, base, so }) {
   const todas = [
     { id: 'fp', nome: porHora ? 'Físico planejado (h)' : 'Físico planejado', cor: '#5B9BD5',
       campo: porHora ? 'hh_planejado' : 'fisico_planejado', esc: yPct, dash: '5,4', tipo: 'pct' },
-    { id: 'fr', nome: porHora ? 'Físico realizado (h)' : 'Físico realizado', cor: '#a99cf0',
+    { id: 'fr', nome: porHora ? 'Físico realizado (h)' : 'Físico realizado', cor: CORES.realizado,
       campo: porHora ? 'hh_realizado' : 'fisico_realizado', esc: yPct, dash: null, tipo: 'pct' },
     { id: '$p', nome: 'Financeiro planejado', cor: '#C8860A', campo: 'financeiro_planejado',
       esc: yFin, dash: '5,4', tipo: 'rs' },
-    { id: '$r', nome: 'Financeiro realizado', cor: '#a99cf0', campo: 'financeiro_realizado',
+    { id: '$r', nome: 'Financeiro realizado', cor: CORES.realizado, campo: 'financeiro_realizado',
       esc: yFin, dash: null, tipo: 'rs' },
   ]
   const series = so ? todas.filter(s => s.tipo === so) : todas

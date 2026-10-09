@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { fmtMoedaK, fmtPct } from '../lib/constants'
+import { fmtMoedaK, fmtPct, CORES } from '../lib/constants'
 
 // Ordem física, do térreo para cima. Áreas sem pavimento vão para o fim.
 const ORDEM = ['Reservatório', 'Terraço', '3º Pav', '2º Pav', '1º Pav', 'Térreo',
@@ -163,7 +163,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
                 </div>
                 <div>
                   <div className="kpi-sub">Executado</div>
-                  <div style={{ font: '600 13px var(--mono)', color: '#a99cf0' }}>
+                  <div style={{ font: '600 13px var(--mono)', color: CORES.realizado }}>
                     {fmtPct(foco.realPct, 1)}
                   </div>
                 </div>

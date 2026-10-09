@@ -3,14 +3,25 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import React, { useEffect, useMemo, useState } from 'react'
 import MemoriaAvanco from '../components/MemoriaAvanco'
-import { OBRA, fmtPct, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
+import { OBRA, CORES, fmtPct, fmtP1, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
 
-// Avanço físico (pedido 13): só linhas de SERVIÇO, agrupadas grupo → pavimento → serviço.
+// Avanço físico (pedido 13; layout do Flats no 13E): só linhas de SERVIÇO, grupo → pavimento → serviço; grupo com um
+// pavimento só (1 Canteiro, 2 Fundação) abre direto nas linhas de serviço.
 // Avanço = horas executadas ÷ horas orçadas (CLAUDE.md). O material não aparece: herda o % do serviço vinculado e
 // as horas dele entram nos totais do grupo e da obra. Números da /api/painel (lib/valor-agregado.js).
 const AZUL = '#5B9BD5'
-const REALIZADO = '#a99cf0'   // lavanda (pedido 13D)
+const REALIZADO = CORES.realizado   // branco (pedido 13E)
 const nf = (v, d = 0) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d })
+
+const CINZA = '#8b919c'
+const GRADE = '38px 1fr 110px 110px 110px 90px 28px'   // cabeçalho de grupo e de pavimento (Flats)
+
+// Serviços em curso (planejado já começou ou com medição) e não iniciados, sobre TODAS as linhas de serviço
+function emCurso(linhas) {
+  const s = linhas.filter(l => l.tipo === 'servico')
+  const n = s.filter(l => l.perc_plan > 0 || l.medido).length
+  return { emCurso: n, naoIniciados: s.length - n }
+}
 
 function agrega(linhas) {
   const hh = linhas.reduce((t, l) => t + l.hh, 0)
@@ -63,10 +74,13 @@ export default function AvancoFisico() {
       if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + l.pavimento).toLowerCase().includes(q)) return
       pv.servicos.push({ ...l, desvio })
     })
-    return Object.values(grupos).sort((a, b) => a.num - b.num).map(g => ({
-      ...g, ag: agrega(g.todas),
-      pavs: Object.values(g.pavs).map(pv => ({ ...pv, ag: agrega(pv.todas) })).filter(pv => pv.servicos.length),
-    })).filter(g => g.pavs.length)
+    return Object.values(grupos).sort((a, b) => a.num - b.num).map(g => {
+      // Grupo com um pavimento só (ex.: 1 Canteiro, 2 Fundação): sem subnível, as linhas aparecem direto (Flats)
+      const porPavimento = Object.keys(g.pavs).length > 1
+      const pavs = Object.values(g.pavs).map(pv => ({ ...pv, ag: agrega(pv.todas), ...emCurso(pv.todas) }))
+        .filter(pv => pv.servicos.length)
+      return { ...g, ag: agrega(g.todas), ...emCurso(g.todas), porPavimento, pavs }
+    }).filter(g => g.pavs.length)
   }, [prod, busca, filtro])
 
   const abrirTodos = (on) => {
@@ -79,47 +93,107 @@ export default function AvancoFisico() {
   const pp = dv => dv == null ? '—' : (dv > 0 ? '+' : '') + nf(dv, 1) + ' p.p.'
   const fmtBR = d => d.toLocaleDateString('pt-BR')
   const sel = { background: 'var(--accent)', color: '#1a1a1a', borderColor: 'var(--accent)' }
+  const retratosDe = l => (med ? med.retratos.filter(r => r.codigo_eap === l.codigo_eap && r.pavimento === l.pavimento) : null)
 
-  const Barra = ({ plan, real, w = 96 }) => (
-    <div style={{ width: w, position: 'relative' }}>
-      <div className="prog-track" style={{ height: 9 }}>
-        <div style={{ position: 'absolute', left: 0, top: 0, height: 9, width: Math.min(plan, 100) + '%',
-                      background: AZUL, opacity: .35, borderRadius: 5 }} />
-        <div style={{ position: 'absolute', left: 0, top: 0, height: 9, width: Math.min(real, 100) + '%',
-                      background: REALIZADO, borderRadius: 5 }} />
+  // Cabeçalho de grupo (nível 0) ou de pavimento (nível 1), grade do Flats:
+  // nº | nome + "N em curso · X h" | planejado | realizado | desvio | "N% do Hh" | ▾
+  const Cab = ({ titulo, sub, ag, nivel, on, onClick, num }) => {
+    const dv = ag.realPct - ag.planPct
+    return (
+      <div onClick={onClick} style={{ display: 'grid', gridTemplateColumns: GRADE, gap: 12, alignItems: 'center', cursor: 'pointer',
+           padding: nivel === 0 ? '14px 4px' : '12px 4px', ...(nivel === 1 ? { borderTop: '1px solid var(--border)',
+           background: 'var(--bg3)', borderRadius: 6, marginBottom: on ? 6 : 0 } : {}) }}>
+        {nivel === 0
+          ? <span style={{ fontFamily: 'var(--mono)', fontSize: 12, color: CINZA, border: '1px solid var(--border2)',
+                           borderRadius: 7, padding: '4px 0', textAlign: 'center' }}>{num}</span>
+          : <span />}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, ...(nivel === 0 ? { textTransform: 'uppercase' } : { color: AZUL }) }}>{titulo}</div>
+          <div style={{ fontSize: 11, color: CINZA, marginTop: 2 }}>{sub}</div>
+        </div>
+        <div style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+          <div style={{ color: AZUL }}>{fmtP1(ag.planPct)}</div>
+          <div style={{ fontSize: 10, color: CINZA }}>planejado</div>
+        </div>
+        <div style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
+          <div style={{ color: REALIZADO }}>{fmtP1(ag.realPct)}</div>
+          <div style={{ fontSize: 10, color: CINZA }}>realizado</div>
+        </div>
+        <div style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: corDesvio(dv) }}>
+          <div>{pp(dv)}</div>
+          <div style={{ fontSize: 10, color: CINZA }}>desvio</div>
+        </div>
+        <div style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: CINZA, fontSize: 11 }}>
+          {fmtP1(H > 0 ? 100 * ag.hh / H : 0)} do Hh
+        </div>
+        <span style={{ color: CINZA, textAlign: 'center' }}>{on ? '▴' : '▾'}</span>
       </div>
-    </div>
-  )
-  const Cab = ({ titulo, sub, ag, nivel, on, onClick, num }) => (
-    <div onClick={onClick} style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
-         padding: nivel === 0 ? '16px 22px' : '10px 22px 10px 40px',
-         background: nivel === 0 ? 'transparent' : 'var(--bg3)', borderTop: nivel === 0 ? 'none' : '1px solid var(--border)' }}>
-      {num != null && (
-        <div style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0, background: 'var(--bg3)', display: 'flex',
-                      alignItems: 'center', justifyContent: 'center', font: '600 13px var(--mono)', color: 'var(--text2)' }}>{num}</div>
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ font: (nivel === 0 ? '600 14px' : '600 12px') + ' "IBM Plex Sans"' }}>{titulo}</div>
-        <div className="kpi-sub">{sub}</div>
-      </div>
-      <div style={{ textAlign: 'right', minWidth: 64 }}>
-        <div style={{ font: '600 13px var(--mono)', color: AZUL }}>{fmtPct(ag.planPct)}</div>
-        <div className="kpi-sub">planejado</div>
-      </div>
-      <div style={{ textAlign: 'right', minWidth: 64 }}>
-        <div style={{ font: '600 13px var(--mono)', color: REALIZADO }}>{fmtPct(ag.realPct)}</div>
-        <div className="kpi-sub">realizado</div>
-      </div>
-      <div style={{ textAlign: 'right', minWidth: 76, font: '600 12px var(--mono)', color: corDesvio(ag.realPct - ag.planPct) }}>
-        {pp(ag.realPct - ag.planPct)}
-      </div>
-      <div style={{ textAlign: 'right', minWidth: 58 }}>
-        <div style={{ font: '600 12px var(--mono)', color: 'var(--text2)' }}>{fmtPct(H > 0 ? 100 * ag.hh / H : 0)}</div>
-        <div className="kpi-sub">do Hh</div>
-      </div>
-      <Barra plan={ag.planPct} real={ag.realPct} />
-      <span style={{ color: 'var(--text3)', fontSize: 11 }}>{on ? '▲' : '▼'}</span>
-    </div>
+    )
+  }
+  const subDe = (x, comExec) => `${x.emCurso} em curso · ${comExec ? `${nf(x.ag.exec)} h de ` : ''}${nf(x.ag.hh)} h` +
+    (x.naoIniciados > 0 ? ` · ${x.naoIniciados} não iniciado${x.naoIniciados === 1 ? '' : 's'}` : '')
+
+  // Tabela de serviços: EAP | descrição (+ "▾ N medições", abre a memória) | Hh | janela | planejado | realizado |
+  // desvio | último retrato
+  const tabelaServicos = (servicos) => (
+    <table style={{ marginBottom: 6 }}>
+      <thead>
+        <tr>
+          <th style={{ width: 70 }}>EAP</th>
+          <th>Descrição</th>
+          <th style={{ textAlign: 'right', width: 80 }}>Hh</th>
+          <th style={{ width: 84 }}>Janela</th>
+          <th style={{ textAlign: 'right', width: 90 }}>Planejado</th>
+          <th style={{ textAlign: 'right', width: 90 }}>Realizado</th>
+          <th style={{ textAlign: 'right', width: 90 }} title="Realizado − planejado, em pontos percentuais">Desvio</th>
+          <th style={{ textAlign: 'right', width: 100 }}>Último retrato</th>
+        </tr>
+      </thead>
+      <tbody>
+        {servicos.map(l => {
+          const rts = retratosDe(l)
+          const on = linhaAberta === l.id
+          return (
+            <React.Fragment key={l.id}>
+              <tr onClick={() => setLinhaAberta(on ? null : l.id)} style={{ cursor: 'pointer' }}
+                  title="Ver a memória de cálculo e lançar medição">
+                <td style={{ fontFamily: 'var(--mono)', color: CINZA }}>{l.codigo_eap}</td>
+                <td>
+                  {l.descricao}
+                  <span style={{ color: CINZA, fontSize: 11, marginLeft: 8 }}>
+                    {on ? '▴' : '▾'}{' '}
+                    {rts == null ? '…' : rts.length === 0 ? 'lançar medição'
+                      : `${rts.length} ${rts.length === 1 ? 'medição' : 'medições'}`}
+                  </span>
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: CINZA }}>{nf(l.hh, 1)}</td>
+                <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: CINZA }}>S{l.semana_inicio}–S{l.semana_fim}</td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: AZUL }}>{fmtP1(l.perc_plan)}</td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: l.medido ? REALIZADO : CINZA }}>
+                  {l.medido ? fmtP1(l.perc_real) : '—'}
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: corDesvio(l.desvio) }}>
+                  {`${l.desvio > 0 ? '+' : ''}${nf(l.desvio, 1)}`}
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 10, color: CINZA }}>
+                  {l.semana_medida ? `S${String(l.semana_medida).padStart(2, '0')}` : 'sem medição'}
+                </td>
+              </tr>
+              {on && (
+                <tr>
+                  <td colSpan={8} style={{ padding: 0 }}>
+                    {!med ? <div className="loading">Carregando medições…</div> : (
+                      <MemoriaAvanco linha={l} modo={med.modo} retratos={rts}
+                        onGravou={() => setRecarga(x => x + 1)} />
+                    )}
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          )
+        })}
+      </tbody>
+    </table>
   )
 
   const av = p?.avanco
@@ -202,82 +276,38 @@ export default function AvancoFisico() {
 
               {!arvore.length ? (
                 <div className="empty-state"><h3>Nada para mostrar</h3><p>Ajuste os filtros acima.</p></div>
-              ) : arvore.map(g => {
-                const kg = 'g' + g.num
-                const onG = !!aberto[kg]
-                return (
-                  <div className="card" key={kg} style={{ padding: 0, overflow: 'hidden' }}>
-                    <Cab nivel={0} num={g.num} titulo={g.nome} on={onG} ag={g.ag}
-                         sub={`${g.pavs.length} pavimento${g.pavs.length === 1 ? '' : 's'} · ${nf(g.ag.hh)} h`}
-                         onClick={() => setAberto({ ...aberto, [kg]: !onG })} />
-                    {onG && g.pavs.map(pv => {
-                      const kp = kg + '|' + pv.nome
-                      const onP = !!aberto[kp]
-                      return (
-                        <div key={kp}>
-                          <Cab nivel={1} titulo={pv.nome} on={onP} ag={pv.ag}
-                               sub={`${pv.servicos.length} serviço${pv.servicos.length === 1 ? '' : 's'} · ${nf(pv.ag.hh)} h`}
-                               onClick={() => setAberto({ ...aberto, [kp]: !onP })} />
-                          {onP && (
-                            <div style={{ padding: '4px 22px 12px 58px' }}>
-                              <table>
-                                <thead>
-                                  <tr>
-                                    <th style={{ width: 64 }}>EAP</th>
-                                    <th>Serviço</th>
-                                    <th style={{ width: 80 }}>Janela</th>
-                                    <th style={{ width: 82, textAlign: 'right' }}>Planejado</th>
-                                    <th style={{ width: 82, textAlign: 'right' }}>Realizado</th>
-                                    <th style={{ width: 86, textAlign: 'right' }}>Desvio</th>
-                                    <th style={{ width: 70, textAlign: 'right' }}>% do Hh</th>
-                                    <th style={{ width: 84, textAlign: 'right' }}>Medido</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {pv.servicos.map(l => (
-                                    <React.Fragment key={l.id}>
-                                    <tr onClick={() => setLinhaAberta(linhaAberta === l.id ? null : l.id)} style={{ cursor: 'pointer' }}
-                                        title="Ver a memória de cálculo e lançar medição">
-                                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
-                                        <span style={{ marginRight: 4 }}>{linhaAberta === l.id ? '▾' : '▸'}</span>{l.codigo_eap}
-                                      </td>
-                                      <td>{l.descricao}</td>
-                                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>S{l.semana_inicio}–S{l.semana_fim}</td>
-                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: AZUL }}>{fmtPct(l.perc_plan, 0)}</td>
-                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: l.medido ? REALIZADO : 'var(--text3)' }}>
-                                        {l.medido ? fmtPct(l.perc_real, 1) : '—'}
-                                      </td>
-                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: corDesvio(l.desvio) }}>{pp(l.desvio)}</td>
-                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text2)' }}>
-                                        {fmtPct(H > 0 ? 100 * l.hh / H : 0, 2)}
-                                      </td>
-                                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>
-                                        {l.semana_medida ? 'S' + l.semana_medida : '—'}
-                                      </td>
-                                    </tr>
-                                    {linhaAberta === l.id && (
-                                      <tr>
-                                        <td colSpan={8} style={{ padding: 0 }}>
-                                          {!med ? <div className="loading">Carregando medições…</div> : (
-                                            <MemoriaAvanco linha={l} modo={med.modo}
-                                              retratos={med.retratos.filter(r => r.codigo_eap === l.codigo_eap && r.pavimento === l.pavimento)}
-                                              onGravou={() => setRecarga(x => x + 1)} />
-                                          )}
-                                        </td>
-                                      </tr>
-                                    )}
-                                    </React.Fragment>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+              ) : (
+                <div className="card">
+                  <div className="card-title">
+                    Avanço físico por grupo — até S{String(semana).padStart(2, '0')} · ponderado por hora-homem
                   </div>
-                )
-              })}
+                  {arvore.map(g => {
+                    const kg = 'g' + g.num
+                    const onG = !!aberto[kg]
+                    return (
+                      <div key={kg} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <Cab nivel={0} num={g.num} titulo={g.nome} on={onG} ag={g.ag} sub={subDe(g, false)}
+                             onClick={() => setAberto(a => ({ ...a, [kg]: !a[kg] }))} />
+                        {onG && !g.porPavimento && (
+                          <div style={{ marginBottom: 10 }}>{tabelaServicos(g.pavs[0].servicos)}</div>
+                        )}
+                        {onG && g.porPavimento && g.pavs.map(pv => {
+                          const kp = kg + '|' + pv.nome
+                          const onP = !!aberto[kp]
+                          return (
+                            <div key={kp}>
+                              <Cab nivel={1} titulo={pv.nome} on={onP} ag={pv.ag} sub={subDe(pv, true)}
+                                   onClick={() => setAberto(a => ({ ...a, [kp]: !a[kp] }))} />
+                              {onP && tabelaServicos(pv.servicos)}
+                            </div>
+                          )
+                        })}
+                        {onG && g.porPavimento && <div style={{ height: 10 }} />}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
 
               <div className="notas-box" style={{ marginTop: 16 }}>
                 O avanço é medido em <b>horas</b>: horas executadas ÷ horas orçadas. Cada serviço vale o <b>último

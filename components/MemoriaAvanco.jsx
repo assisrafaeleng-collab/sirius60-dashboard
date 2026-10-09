@@ -4,13 +4,13 @@
 // (avanco_fisico_historico): enquanto ela não existir (modo 'incremento'), tudo fica só leitura com aviso.
 // Senha: Desbloqueio dentro da página (sem alert/confirm/prompt). Hooks no topo (erro #310).
 import { useState } from 'react'
-import { fmtP1 } from '../lib/constants'
+import { fmtP1, CORES } from '../lib/constants'
 import { dataParaSemana, hojeSaoPaulo } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
 import { fetchComSenhaSemJanela, temSenha } from '../lib/fetch-com-senha'
 import Desbloqueio from './Desbloqueio'
 
-const REALIZADO = '#a99cf0'
+const REALIZADO = CORES.realizado
 const S2 = (n) => `S${String(n).padStart(2, '0')}`
 const dmy = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '')
 const pc = (v) => fmtP1(v)

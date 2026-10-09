@@ -4,7 +4,7 @@
 // Físico planejado (curva do cronograma, horas) e valor planejado vêm de semanas_alinhadas (/api/dashboard-integrado);
 // valor agregado, custo pago e comprometido da /api/curva-s (mesma conta dos cards). Hooks no topo (erro #310).
 import { useEffect, useState } from 'react'
-import { fmtMoeda2, fmtP1, CORES_VA } from '../lib/constants'
+import { fmtMoeda2, fmtP1, CORES, CORES_VA } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
 
 const { economia: VERDE, estouro: VERMELHO } = CORES_VA
@@ -37,10 +37,10 @@ const somarMeses = (s, n) => {
   return alvo.toISOString().slice(0, 10)
 }
 
-// Cores (Flats; o físico realizado em lavanda e o comprometido pontilhado na cor do custo pago — pedido 13D)
+// Cores (Flats; o físico realizado em branco (CORES.realizado) e o comprometido pontilhado na cor do custo pago — pedido 13D)
 export const SERIES_CURVA = [
   { id: 'fp', nome: 'Físico planejado', cor: '#5B9BD5', campo: 'fp', dash: '5,4', tipo: 'pct' },
-  { id: 'fr', nome: 'Físico realizado', cor: '#a99cf0', campo: 'fr', dash: null, tipo: 'pct' },
+  { id: 'fr', nome: 'Físico realizado', cor: CORES.realizado, campo: 'fr', dash: null, tipo: 'pct' },
   { id: 'vp', nome: 'Valor planejado', cor: '#C9B38A', campo: 'vp', dash: '5,4', tipo: 'rs' },
   { id: 'va', nome: 'Valor agregado', cor: '#E8B04B', campo: 'va', dash: null, tipo: 'rs' },
   { id: 'cr', nome: 'Custo pago', cor: '#D9734E', campo: 'cr', dash: null, tipo: 'rs' },

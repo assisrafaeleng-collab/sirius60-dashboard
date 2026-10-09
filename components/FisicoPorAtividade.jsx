@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { fmtMoedaK, fmtPct } from '../lib/constants'
+import { fmtMoedaK, fmtPct, CORES } from '../lib/constants'
 
-const VERDE = '#a99cf0'   // executado = realizado, lavanda (pedido 13D)
+const VERDE = CORES.realizado   // executado = realizado, branco (pedido 13E)
 const VERM  = '#B03030'
 const AZUL  = '#5B6B9B'
 

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { fetchComSenha } from '../lib/fetch-com-senha'
 import { datasDaSemana } from '../lib/calendario'
-import { OBRA, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
+import { OBRA, CORES, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
          inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo, hojeSaoPaulo } from '../lib/constants'
 
 const AZUL = '#5B9BD5'
-const REALIZADO = '#a99cf0'   // lavanda (pedido 13D)
+const REALIZADO = CORES.realizado   // branco (pedido 13E)
 
 export default function MedicaoSemanal({ semana, sessao }) {
   const [itens, setItens] = useState(null)

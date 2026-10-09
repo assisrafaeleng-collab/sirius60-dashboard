@@ -5,12 +5,12 @@
 import React, { useEffect, useState } from 'react'
 import { fmtMoeda2 as fmtMoeda, fmtP1 as fmtP } from '../lib/constants'
 import { competenciaDaSemana } from '../lib/calendario'
+import ListaLancamentos from './ListaLancamentos'
 import { PLAN, AMBAR, CINZA, VERMELHO, BarraEstouro, NeutroVerba, Estouro, percDoOrcado, fmtPercOrcado,
   tituloPercOrcado, somar } from './ValorCusto'
 
 const GRUPO_COLS = '38px minmax(0,1fr) 140px 150px 200px 84px 180px 28px'
 const S2 = (n) => `S${String(n).padStart(2, '0')}`
-const dmy = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(2, 4)}` : '')
 // mês da obra (M1 = ago/2026) de uma semana
 const mesDaSemana = (s) => {
   const c = competenciaDaSemana(s)
@@ -145,8 +145,6 @@ export default function CustoPorGrupo({ semana }) {
                     const lanc = i.lancamentos || []
                     const on = itemAberto === k
                     const pv = percDoOrcado(i.pago, i.a_pagar, i.orcado)
-                    const subPago = lanc.filter((l) => l.tipo === 'pago').reduce((t, l) => t + l.valor, 0)
-                    const subAPagar = lanc.filter((l) => l.tipo === 'a_pagar').reduce((t, l) => t + l.valor, 0)
                     return (
                       <React.Fragment key={k}>
                         <tr onClick={() => lanc.length && setItemAberto(on ? null : k)} style={{ cursor: lanc.length ? 'pointer' : 'default' }}>
@@ -192,36 +190,7 @@ export default function CustoPorGrupo({ semana }) {
                         {on && (
                           <tr>
                             <td colSpan={9} style={{ padding: 0 }}>
-                              <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', margin: '0 0 8px' }}>
-                                {lanc.map((l, n) => (
-                                  <div key={n} style={{ display: 'grid', gridTemplateColumns: '80px 60px 70px minmax(0,1fr) minmax(0,1fr) 130px', gap: 10,
-                                                        padding: '5px 0', fontSize: 12, borderBottom: '1px solid var(--border)' }}>
-                                    <span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{dmy(l.data)}</span>
-                                    <span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{l.semana ? S2(l.semana) : 'venc.'}</span>
-                                    <span>
-                                      {l.tipo === 'a_pagar'
-                                        ? <span style={{ font: "600 10px 'IBM Plex Mono', monospace", color: '#1a1a1a', background: AMBAR,
-                                                         borderRadius: 4, padding: '1px 5px', letterSpacing: '.06em' }}>A PAGAR</span>
-                                        : <span style={{ font: "500 10px 'IBM Plex Mono', monospace", color: CINZA, letterSpacing: '.06em' }}>PAGO</span>}
-                                    </span>
-                                    <span>{l.fornecedor}</span>
-                                    <span style={{ color: CINZA }}>
-                                      {l.tipo === 'a_pagar'
-                                        ? `vence ${dmy(l.data)} · doc. ${l.documento}${l.parcela ? ` · parcela ${l.parcela}` : ''}${l.descricao ? ` · ${l.descricao}` : ''}`
-                                        : l.descricao}
-                                      {l.rateado ? ' · rateado pelo orçado' : ''}
-                                    </span>
-                                    <span style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: l.tipo === 'a_pagar' ? AMBAR : undefined }}>
-                                      {fmtMoeda(l.valor)}
-                                    </span>
-                                  </div>
-                                ))}
-                                <div style={{ display: 'flex', gap: 22, justifyContent: 'flex-end', paddingTop: 8, fontSize: 12, fontFamily: 'var(--mono)' }}>
-                                  <span>pago {fmtMoeda(subPago)}</span>
-                                  <span style={{ color: AMBAR }}>a pagar {fmtMoeda(subAPagar)}</span>
-                                  <span style={{ fontWeight: 600 }}>total {fmtMoeda(subPago + subAPagar)}</span>
-                                </div>
-                              </div>
+                              <ListaLancamentos lancamentos={lanc} />
                             </td>
                           </tr>
                         )}
