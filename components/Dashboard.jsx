@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel , ehCustoDeTempo } from '../lib/constants'
+import { datasDaSemana } from '../lib/calendario'
 import MapaPavimentos from './MapaPavimentos'
 import FisicoPorAtividade from './FisicoPorAtividade'
 import DiarioOcorrencias from './DiarioOcorrencias'
@@ -13,6 +14,8 @@ export default function Dashboard({ semana, sessao }) {
   const [itens, setItens] = useState(null)
   const [med, setMed] = useState(null)
   const [painel, setPainel] = useState(null)   // valor agregado, comprometido e contas a pagar (/api/painel)
+  // "Mostrar: Custos | Avanço físico", como no Flats (pages/semanal.js de lá). Padrão: custos.
+  const [mostrar, setMostrar] = useState('custo')   // custo | fisico
 
   useEffect(() => {
     setPainel(null)
@@ -53,22 +56,27 @@ export default function Dashboard({ semana, sessao }) {
   if (!d) return <div className="loading">Carregando dados da obra…</div>
 
   const k = d.kpis
+  const horasOrcadas = painel && !painel.erro ? painel.avanco.hh_total : k.base_horas
+  const fisico = mostrar === 'fisico'
 
   return (
     <>
       <HeroCusto k={k} />
-      <div className="kpi-sub" style={{ margin: '0 0 12px' }}>
-        Avanço físico por horas de mão de obra: base de {Math.round(k.base_horas || 0).toLocaleString('pt-BR')} h
-        (o material segue o avanço do serviço vinculado).
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '4px 0 16px' }}>
+        <span style={{ font: "500 12px 'IBM Plex Sans'", color: 'var(--text3)' }}>Mostrar</span>
+        <button className={!fisico ? 'btn-primary' : 'btn-sm'} onClick={() => setMostrar('custo')}>Custos</button>
+        <button className={fisico ? 'btn-primary' : 'btn-sm'} onClick={() => setMostrar('fisico')}>Avanço físico</button>
+        <span style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text3)' }}>
+          avanço físico = horas executadas ÷ {Math.round(horasOrcadas || 0).toLocaleString('pt-BR')} h orçadas (parcela de produção)
+        </span>
       </div>
-      <Kpis k={k} semana={semana} base={base} painel={painel} />
-      <ContasAPagar painel={painel} semana={semana} />
+      <Kpis k={k} semana={semana} painel={painel} mostrar={mostrar} curva={d.semanas_alinhadas} />
       <div className="card">
-        <div className="card-title">Curva S — físico e financeiro</div>
-        <CurvaS semanas={d.semanas_alinhadas} semAtual={semana} base={base} />
+        <div className="card-title">{fisico ? 'Curva S física — planejado × realizado (horas)' : 'Curva S financeira — custo direto'}</div>
+        <CurvaS key={mostrar} semanas={d.semanas_alinhadas} semAtual={semana} base={base} so={fisico ? 'pct' : 'rs'} />
       </div>
-      <FisicoPorAtividade itens={itens} medido={med} semana={semana} base={base} />
-      <MapaPavimentos itens={itens} medido={med} semana={semana} base={base} />
+      {fisico && <FisicoPorAtividade itens={itens} medido={med} semana={semana} base={base} />}
+      {fisico && <MapaPavimentos itens={itens} medido={med} semana={semana} base={base} />}
       <DiarioOcorrencias sessao={sessao} itens={itens} />
     </>
   )
@@ -109,195 +117,255 @@ function HeroCusto({ k }) {
   )
 }
 
-/* ─── KPIs ────────────────────────────────────────────────── */
-function Kpis({ k, semana, base, painel }) {
+/* ─── KPIs (pedido 13B: iguais aos do Flats, pages/semanal.js de lá) ─────────────
+   Modo "Custos": linha 1 direto (valor agregado, realizado, saldo, % desvio, saldo total da obra); linha 2 indireto
+   (planejado, realizado, saldo, % desvio) e custo direto a pagar; linha 3 projeções.
+   Modo "Avanço físico": os 3 primeiros de cada linha ficam; no lugar dos 2 últimos, avanço planejado e desvio físico
+   (linha 1), avanço realizado e adiantamento (linha 2).
+   Contas (como no Flats):
+     comprometido = pago + a pagar (direto, não recorrente); saldo direto = valor agregado − comprometido;
+     % desvio direto = saldo ÷ valor agregado; saldo indireto = planejado − pago − a pagar indireto;
+     % desvio indireto = saldo ÷ planejado; saldo total = direto + indireto, % sobre (valor agregado + indireto
+     planejado); adiantamento = semana (interpolada pelas datas) em que a curva planejada atinge o realizado da
+     última medição − semana da medição; término projetado = fim do cronograma − esses dias. */
+const fmt2 = v => v == null || isNaN(v) ? '—'
+  : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)
+const pc1 = v => v == null || isNaN(v) ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
+const sinal = v => (v >= 0 ? '+' : '') + pc1(v)
+const S2 = n => 'S' + String(n).padStart(2, '0')
+const dmy = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—'
+const VERDE = 'var(--green-tx)', VERMELHO = 'var(--red-tx)'
+const PLAN = '#6e8ba8', REAL = '#f2f4f7'
+const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px', borderRadius: 6 }
+
+// Adiantamento (Flats): curva = semanas_alinhadas (hh_planejado = curva do cronograma, hh_realizado = medições)
+function calcularAdiantamento(curva, semMedida) {
+  const iMed = curva.findIndex(c => c.semana_numero === semMedida)
+  const real = iMed >= 0 ? curva[iMed].hh_realizado : null
+  if (real == null || !(real > 0)) return null
+  const dia = iso => Date.parse(iso.slice(0, 10)) / 864e5
+  let wEq = null, diaEq = null
+  for (let i = 0; i < curva.length; i += 1) {
+    const pl = curva[i].hh_planejado || 0
+    if (pl < real) continue
+    const ant = i > 0 ? curva[i - 1] : null
+    const plAnt = ant ? ant.hh_planejado || 0 : 0
+    const f = pl - plAnt > 1e-9 ? (real - plAnt) / (pl - plAnt) : 1
+    const wAnt = ant ? ant.semana_numero : curva[i].semana_numero - 1
+    const dAnt = ant ? dia(datasDaSemana(ant.semana_numero).data_fim) : dia(datasDaSemana(curva[i].semana_numero).data_inicio) - 1
+    wEq = wAnt + f * (curva[i].semana_numero - wAnt)
+    diaEq = dAnt + f * (dia(datasDaSemana(curva[i].semana_numero).data_fim) - dAnt)
+    break
+  }
+  if (wEq == null) return null
+  const semanas = wEq - semMedida
+  const dias = Math.round(diaEq - dia(datasDaSemana(semMedida).data_fim))
+  const fim = datasDaSemana(curva[curva.length - 1].semana_numero).data_fim
+  const termino = new Date((dia(fim) - dias) * 864e5).toISOString().slice(0, 10)
+  return { semanas, dias, real, wEq, termino, fim, semMed: semMedida }
+}
+
+function Kpis({ k, semana, painel, mostrar, curva }) {
   const router = useRouter()
-  const porHora = base === 'horas'
-  // avanço: planejado pela curva do cronograma e realizado pelas medições, em horas (/api/painel); sem o painel,
-  // o da dashboard-integrado (mesma regra)
-  const av = painel && !painel.erro ? painel.avanco : null
-  const planFis = av ? av.planejado : (porHora ? k.avanco_hh_planejado : k.avanco_fisico_planejado)
-  const realFis = av ? av.realizado : (porHora ? k.avanco_hh_realizado : k.avanco_fisico_realizado)
-  const desvFis = av ? (k.tem_medicao ? +(av.realizado - av.planejado).toFixed(2) : null) : (porHora ? k.desvio_hh : k.desvio_fisico)
-  // custo direto: valor agregado × comprometido (pago + a pagar), não o planejado do cronograma (CLAUDE.md, 08/10)
-  const tot = painel && !painel.erro ? painel.totais : null
-  const indPlan = k.custo_indireto_planejado_ate
-  const indReal = k.custo_indireto_realizado
-  const saldoDir = tot ? tot.agregado - tot.comprometido : null
-  const saldoInd = indPlan - indReal
-  const desvio = desvFis
-  const temDesvio = desvio != null
+  const [abrirAPagar, setAbrirAPagar] = useState(false)
+  const [abrirProjecao, setAbrirProjecao] = useState(false)
+  useEffect(() => { setAbrirAPagar(false) }, [semana])
 
-  // Planejado: referencia, matiz frio. Realizado: medido, claro + pilula.
-  // Saldo: verde quando sobra, vermelho quando estoura.
-  const PLAN = '#6e8ba8'
-  const REAL = '#f2f4f7'
-  const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px',
-                 borderRadius: 6 }
-  const corSaldo = v => v >= 0 ? 'var(--green-tx)' : 'var(--red-tx)'
-  const legSaldo = v => v >= 0 ? 'Economia' : 'Estouro'
-  const pctDe = (real, plan) => plan > 0 ? fmtPct(100 * real / plan) + ' do planejado' : '—'
-
+  const ok = painel && !painel.erro
   const carregando = painel == null ? 'carregando…' : painel.erro ? 'indisponível: ' + painel.erro : null
-  const cards = [
-    { l: 'Valor agregado (direto)', c: PLAN, v: tot ? fmtMoeda(tot.agregado) : '—',
-      s: carregando || `Até S${semana} · ${fmtPct(100 * tot.agregado / tot.orcado)} do orçado`,
-      link: `/custos-diretos?semana=${semana}` },
-    { l: 'Custo direto comprometido', c: REAL, pill: true, v: tot ? fmtMoeda(tot.comprometido) : '—',
-      s: carregando || `${fmtMoedaK(tot.pago)} pago + ${fmtMoedaK(tot.a_pagar)} a pagar`,
-      link: `/custos-diretos?semana=${semana}` },
-    { l: 'Saldo custo direto', v: saldoDir == null ? '—' : fmtMoeda(saldoDir),
-      s: saldoDir == null ? (carregando || '—') : legSaldo(saldoDir) + ' · valor agregado − comprometido',
-      c: saldoDir == null ? null : corSaldo(saldoDir), cs: saldoDir == null ? null : corSaldo(saldoDir) },
-    { l: 'Avanço físico planejado', v: fmtPct(planFis),
-      s: 'Curva do cronograma (horas)',
-      link: `/avanco-fisico?semana=${semana}` },
-    { l: 'Desvio físico',
-      v: temDesvio ? (desvio > 0 ? '+' : '') + fmtPct(desvio) : '—',
-      s: !temDesvio ? 'Depende da medição'
-         : desvio >= 0 ? 'Adiantado' : 'Atrasado',
-      c: !temDesvio ? null : desvio >= 0 ? 'var(--green-tx)'
-         : desvio > -5 ? 'var(--amber-tx)' : 'var(--red-tx)',
-      cs: !temDesvio ? null : desvio >= 0 ? 'var(--green-tx)'
-         : desvio > -5 ? 'var(--amber-tx)' : 'var(--red-tx)' },
+  const tot = ok ? painel.totais : null
+  const contas = ok ? painel.contas : null
+  const fisico = mostrar === 'fisico'
+  const sRef = S2(semana)
+  const semMedida = Math.min(semana, k.ultima_semana_medida || semana)
+  const sMed = S2(k.ultima_semana_medida || semana)
 
-    { l: 'Custo indireto planejado', c: PLAN, v: fmtMoeda(indPlan), s: `Acumulado até S${semana}`,
-      link: `/custos-indiretos?semana=${semana}` },
-    { l: 'Custo indireto realizado', c: REAL, pill: true, v: fmtMoeda(indReal), s: pctDe(indReal, indPlan),
-      link: `/custos-indiretos?semana=${semana}` },
-    { l: 'Saldo custo indireto', v: fmtMoeda(saldoInd),
-      s: legSaldo(saldoInd), c: corSaldo(saldoInd), cs: corSaldo(saldoInd) },
-    { l: 'Avanço físico realizado',
-      v: k.tem_medicao ? fmtPct(realFis) : '—',
-      s: k.tem_medicao
-        ? (k.ultima_semana_medida && semana - k.ultima_semana_medida > 2
-            ? `última medição na S${k.ultima_semana_medida}`
-            : 'Realizado até agora')
-        : 'Sem medição lançada',
-      cs: (k.tem_medicao && k.ultima_semana_medida && semana - k.ultima_semana_medida > 2)
-        ? 'var(--amber-tx)' : null,
-      link: `/avanco-fisico?semana=${semana}` },
-  ]
+  // direto
+  const agregado = tot ? tot.agregado : null
+  const pago = tot ? tot.pago : null
+  const aPagarDireto = tot ? tot.a_pagar : 0
+  const comprometido = tot ? tot.comprometido : null
+  const saldoDireto = tot ? agregado - comprometido : null
+  const pctDireto = saldoDireto == null || !(agregado > 0) ? null : 100 * saldoDireto / agregado
+  // indireto (planejado: recorrentes diluídos + pontuais no mês, rateio pelos dias)
+  const indiretoPlan = k.custo_indireto_planejado_ate || 0
+  const indiretoPago = k.custo_indireto_realizado || 0
+  const aPagarIndireto = contas && contas.totais ? contas.totais.indireto : 0
+  const indiretoReal = indiretoPago + aPagarIndireto
+  const saldoIndireto = indiretoPlan - indiretoReal
+  const pctIndireto = indiretoPlan > 0 ? 100 * saldoIndireto / indiretoPlan : null
+  const saldoTotal = saldoDireto == null ? null : saldoDireto + saldoIndireto
+  const baseTotal = (agregado || 0) + indiretoPlan
+  const pctTotal = saldoTotal == null || baseTotal <= 0 ? null : 100 * saldoTotal / baseTotal
+  // avanço (horas)
+  const av = ok ? painel.avanco : null
+  const avancoPlan = av ? av.planejado : k.avanco_hh_planejado
+  const avancoReal = k.tem_medicao ? (av ? av.realizado : k.avanco_hh_realizado) : null
+  const adiantamento = calcularAdiantamento(curva || [], semMedida)
+  const cor = v => v == null ? REAL : v >= 0 ? VERDE : VERMELHO
+
+  const card = (c) => (
+    <div key={c.l} className={'kpi' + (c.onClick || c.link ? ' kpi-clickable' : '')}
+         onClick={c.onClick || (c.link ? () => router.push(c.link) : undefined)} title={c.title}>
+      <div className="kpi-label">{c.l}</div>
+      <div className="kpi-value" style={{ fontSize: 20, lineHeight: 1.2, color: c.c || undefined }}>
+        {c.pill ? <span style={PILL}>{c.v}</span> : c.v}
+      </div>
+      <div className="kpi-sub" style={c.cs ? { color: c.cs } : null}>{c.s}</div>
+    </div>
+  )
+
+  const c1 = { l: 'Valor agregado ↗', c: PLAN, v: fmt2(agregado), link: `/custos-diretos?semana=${semana}`,
+    s: carregando || `Executado até ${sRef} · medição de ${sMed}`,
+    title: 'Serviço executado a preço de orçamento (percentual × custo da linha; material pela regra do material).' }
+  const c2 = { l: 'Custo direto realizado ↗', c: REAL, pill: true, v: fmt2(comprometido), link: `/custos-diretos?semana=${semana}`,
+    s: carregando || <>{agregado > 0 ? `${pc1(100 * comprometido / agregado)} do executado (pago + a pagar)` : '—'}
+      <div>pago {fmt2(pago)} · a pagar {fmt2(aPagarDireto)} · até {sRef}</div></> }
+  const c3 = { l: 'Saldo custo direto', v: fmt2(saldoDireto), c: cor(saldoDireto),
+    s: saldoDireto == null ? (carregando || '—') : `${saldoDireto >= 0 ? 'Economia' : 'Estouro'} · até ${sRef}`,
+    cs: saldoDireto == null ? null : cor(saldoDireto),
+    title: `Valor agregado − custo realizado (pago + a pagar)\n${fmt2(agregado)} − ${fmt2(comprometido)}` }
+  const c4 = { l: '% Desvio do custo direto', v: pctDireto == null ? '—' : sinal(pctDireto), c: cor(pctDireto),
+    s: pctDireto == null ? 'Sem medição' : `${pctDireto >= 0 ? 'Economia' : 'Estouro'} sobre o valor agregado · até ${sRef}`,
+    title: `Saldo do direto ÷ valor agregado\n${fmt2(saldoDireto)} ÷ ${fmt2(agregado)}` }
+  const c5 = { l: 'Saldo total da obra', v: fmt2(saldoTotal), c: cor(saldoTotal),
+    s: pctTotal == null ? 'Sem medição' : `${sinal(pctTotal)} · direto + indireto`, cs: pctTotal == null ? null : cor(pctTotal),
+    title: `Saldo do direto ${fmt2(saldoDireto)} + saldo do indireto ${fmt2(saldoIndireto)} = ${fmt2(saldoTotal)}\n% = saldo total ÷ (valor agregado + indireto planejado)` }
+  const c4f = { l: 'Avanço físico · planejado', v: pc1(avancoPlan), s: `Hh planejado ÷ Hh do projeto · em ${sRef}`,
+    link: `/avanco-fisico?semana=${semana}` }
+  const desv = avancoReal == null ? null : avancoReal - avancoPlan
+  const c5f = { l: 'Desvio físico', v: desv == null ? '—' : sinal(desv), c: desv == null ? REAL : cor(desv),
+    s: desv == null ? 'Sem medição' : `${desv >= 0 ? 'Adiantado' : 'Atrasado'} · p.p. do projeto · em ${sRef} · medição de ${sMed}` }
+
+  const c6 = { l: 'Custo indireto planejado ↗', c: PLAN, v: fmt2(indiretoPlan), link: `/custos-indiretos?semana=${semana}`,
+    s: `Rateio linear · acumulado até ${sRef}`,
+    title: 'Recorrentes (engenheiro, contabilidade, IPTU, despesas bancárias…) diluídos pela obra toda; pontuais no mês previsto.' }
+  const c7 = { l: 'Custo indireto realizado ↗', c: REAL, pill: true, v: fmt2(indiretoReal), link: `/custos-indiretos?semana=${semana}`,
+    s: <>{indiretoPlan > 0 ? `${pc1(100 * indiretoReal / indiretoPlan)} do planejado (pago + a pagar)` : '—'}
+      <div>pago {fmt2(indiretoPago)} · a pagar {fmt2(aPagarIndireto)}</div></> }
+  const c8 = { l: 'Saldo custo indireto', v: fmt2(saldoIndireto), c: cor(saldoIndireto),
+    s: saldoIndireto >= 0 ? 'Economia' : 'Estouro', cs: cor(saldoIndireto) }
+  const c9 = { l: '% Desvio do custo indireto', v: pctIndireto == null ? '—' : sinal(pctIndireto), c: cor(pctIndireto),
+    s: pctIndireto == null ? '—' : `${pctIndireto >= 0 ? 'Economia' : 'Estouro'} sobre o planejado · até ${sRef}`,
+    title: `Saldo do indireto ÷ indireto planejado\n${fmt2(saldoIndireto)} ÷ ${fmt2(indiretoPlan)}` }
+  const c10 = { l: `Custo direto a pagar ${abrirAPagar ? '▴' : '▾'}`, c: '#c9a45c', v: fmt2(aPagarDireto),
+    onClick: () => setAbrirAPagar(v => !v),
+    s: !contas ? (carregando || '—') : !contas.disponivel ? 'Aguardando a carga do contas a pagar'
+      : contas.fechamento ? `Vencimentos a partir de ${contas.fechamento} · fechamento ${contas.fechamento}`
+      : `Nenhum fechamento até ${sRef}`,
+    title: contas && contas.fechamento
+      ? `Custo direto a pagar (só direto e não recorrente), o mesmo valor que entra no custo realizado.\nIndireto a pagar (fora deste card): ${fmt2(aPagarIndireto)}. Clique para ver os títulos.`
+      : undefined }
+  const c9f = { l: 'Avanço físico · realizado ↗', v: pc1(avancoReal), link: `/avanco-fisico?semana=${semana}`,
+    s: avancoReal == null ? 'Sem medição lançada' : `Hh executado ÷ Hh do projeto · medido até ${sMed}` }
+  const c10f = { l: 'Adiantamento',
+    v: adiantamento == null ? '—' : `${adiantamento.semanas >= 0 ? '+' : ''}${adiantamento.semanas.toFixed(1).replace('.', ',')} semanas`,
+    c: adiantamento == null ? REAL : cor(adiantamento.semanas),
+    s: adiantamento == null ? 'Sem medição'
+      : `${adiantamento.semanas >= 0 ? 'Adiantado' : 'Atrasado'} ${Math.abs(adiantamento.dias)} dias · término projetado ${dmy(adiantamento.termino)} se o ritmo for mantido`,
+    title: adiantamento == null ? 'Sem medição' :
+      `Físico realizado na última medição (${S2(adiantamento.semMed)}): ${pc1(adiantamento.real)}\n` +
+      `A curva planejada atinge esse valor na S${adiantamento.wEq.toFixed(1).replace('.', ',')} (interpolada)\n` +
+      `Adiantamento = S${adiantamento.wEq.toFixed(1).replace('.', ',')} − ${S2(adiantamento.semMed)} = ${adiantamento.semanas.toFixed(1).replace('.', ',')} semanas (${adiantamento.dias} dias)\n` +
+      `Término projetado = término do cronograma (${dmy(adiantamento.fim)}) − ${adiantamento.dias} dias = ${dmy(adiantamento.termino)}\nVale se o ritmo for mantido.` }
+  const c11 = { l: `Projeções de custo final ${abrirProjecao ? '▴' : '▾'}`, v: fmt2(tot ? tot.orcado : null),
+    onClick: () => setAbrirProjecao(v => !v), s: 'Orçado do custo direto · clique para ver as projeções' }
+
+  const linha1 = fisico ? [c1, c2, c3, c4f, c5f] : [c1, c2, c3, c4, c5]
+  const linha2 = fisico ? [c6, c7, c8, c9f, c10f] : [c6, c7, c8, c9, c10]
+  const grade = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16 }
 
   return (
-    <div className="kpi-grid">
-      {cards.map((c, i) => (
-        <div className={'kpi' + (c.link ? ' kpi-clickable' : '')} key={i}
-             onClick={c.link ? () => router.push(c.link) : undefined}
-             title={c.link ? 'Ver o detalhamento' : undefined}>
-          <div className="kpi-label">
-            {c.l}{c.link && <span style={{ color: 'var(--accent)', marginLeft: 6 }}>→</span>}
-          </div>
-          <div className="kpi-value" style={c.c ? { color: c.c } : null}>
-            {c.pill ? <span style={PILL}>{c.v}</span> : c.v}
-          </div>
-          <div className="kpi-sub" style={c.cs ? { color: c.cs } : null}>{c.s}</div>
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="kpi-grid" style={grade}>{linha1.map(card)}</div>
+      <div className="kpi-grid" style={{ ...grade, marginTop: -10 }}>{linha2.map(card)}</div>
+      {!fisico && abrirAPagar && <ListaContas semana={semana} />}
+      <div className="kpi-grid" style={{ ...grade, marginTop: -10 }}>{card(c11)}</div>
+      {abrirProjecao && (
+        <div className="card"><div className="kpi-sub">Projeções no próximo pedido.</div></div>
+      )}
+    </>
   )
 }
 
-/* ─── CONTAS A PAGAR ──────────────────────────────────────── */
-// Card "Custo direto a pagar" (só direto e não recorrente; CLAUDE.md, 08/10). Ao clicar, a lista do fechamento por
-// mês de vencimento, com os totais direto / indireto / geral (/api/contas-a-pagar, sem senha, como no Flats).
-function ContasAPagar({ painel, semana }) {
-  const [aberto, setAberto] = useState(false)
+/* ─── CONTAS A PAGAR: lista do card "Custo direto a pagar" ─────────────────────
+   Títulos do fechamento por mês de vencimento, com os totais direto / indireto / geral
+   (/api/contas-a-pagar, sem senha, como no Flats). */
+function ListaContas({ semana }) {
   const [lista, setLista] = useState(null)
-  useEffect(() => { setLista(null); setAberto(false) }, [semana])
-  if (!painel || painel.erro) return null
-  const c = painel.contas
-  if (!c.disponivel) return null
-  function alternar() {
-    const novo = !aberto
-    setAberto(novo)
-    if (novo && !lista) {
-      fetch(`/api/contas-a-pagar?semana=${semana}`).then(r => r.json())
-        .then(j => setLista(j.error ? { erro: j.message || j.error } : j)).catch(e => setLista({ erro: e.message }))
-    }
-  }
+  useEffect(() => {
+    setLista(null)
+    fetch(`/api/contas-a-pagar?semana=${semana}`).then(r => r.json())
+      .then(j => setLista(j.error ? { erro: j.message || j.error } : j)).catch(e => setLista({ erro: e.message }))
+  }, [semana])
   const mesBR = m => m ? m.split('-').reverse().join('/') : '—'
   return (
     <div className="card">
-      <div className="kpi kpi-clickable" onClick={alternar} title="Ver os títulos" style={{ margin: 0 }}>
-        <div className="kpi-label">
-          Custo direto a pagar<span style={{ color: 'var(--accent)', marginLeft: 6 }}>{aberto ? '▲' : '▼'}</span>
-        </div>
-        <div className="kpi-value">{c.fechamento ? fmtMoeda(c.totais.custo_direto_a_pagar) : '—'}</div>
-        <div className="kpi-sub">
-          {c.fechamento
-            ? `Vencimentos a partir de ${c.vencimentos_a_partir || '—'} · fechamento ${c.fechamento} · ${c.n_titulos} título${c.n_titulos === 1 ? '' : 's'}`
-            : `Nenhum fechamento de contas a pagar até a S${semana}`}
-        </div>
-      </div>
-      {aberto && (
-        <div style={{ marginTop: 14 }}>
-          {!lista ? <div className="loading">Carregando títulos…</div>
-            : lista.erro ? <div className="kpi-sub">Não foi possível carregar: {lista.erro}</div>
-            : lista.por_mes.map(m => (
-              <div key={m.mes} style={{ marginBottom: 14 }}>
-                <div className="form-section-title" style={{ marginBottom: 6 }}>
-                  Vencimento {mesBR(m.mes)} · {fmtMoeda(m.total)}
-                </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Fornecedor</th><th style={{ width: 130 }}>Documento</th><th style={{ width: 60 }}>Parcela</th>
-                      <th style={{ width: 92 }}>Vencimento</th><th style={{ width: 104, textAlign: 'right' }}>Valor</th>
-                      <th style={{ width: 150 }}>EAP</th><th style={{ width: 120 }}>Tipo</th><th>Alerta</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lista.titulos.filter(t => t.competencia_vencimento === m.mes).map(t => (
-                      <tr key={t.chave}>
-                        <td>{t.fornecedor}</td>
-                        <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{t.num_documento}</td>
-                        <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{t.parcela || '—'}</td>
-                        <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{t.data_vencimento ? t.data_vencimento.split('-').reverse().join('/') : '—'}</td>
-                        <td style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>{fmtMoeda(t.valor)}</td>
-                        <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
-                          {t.eaps.map(e => (e.codigo_eap || 'pendente') + (e.pavimento ? ' ' + e.pavimento : '')).join(', ')}
-                        </td>
-                        <td style={{ fontSize: 11 }}>
-                          {t.tipo === 'direto' ? 'direto' : t.tipo === 'direto recorrente' ? 'direto recorrente (fora do card)' : t.tipo}
-                        </td>
-                        <td style={{ fontSize: 11, color: t.alertas.length ? 'var(--amber-tx)' : 'var(--text3)' }}>
-                          {t.alertas.length ? t.alertas.join('; ') : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      {!lista ? <div className="loading">Carregando títulos…</div>
+        : lista.erro ? <div className="kpi-sub">Não foi possível carregar: {lista.erro}</div>
+        : !lista.fechamento ? <div className="kpi-sub">Nenhum fechamento de contas a pagar até a {S2(semana)}.</div>
+        : <>
+          {lista.por_mes.map(m => (
+            <div key={m.mes} style={{ marginBottom: 14 }}>
+              <div className="form-section-title" style={{ marginBottom: 6 }}>
+                Vencimento {mesBR(m.mes)} · {fmt2(m.total)}
               </div>
-            ))}
-          {lista && !lista.erro && (
-            <div className="kpi-sub">
-              Totais do fechamento {lista.fechamento}: direto {fmtMoeda(lista.totais.direto)} (entra no card e no custo
-              comprometido) · direto recorrente {fmtMoeda(lista.totais.direto_recorrente)} · indireto{' '}
-              {fmtMoeda(lista.totais.indireto)} · pendente {fmtMoeda(lista.totais.pendente)} · geral{' '}
-              {fmtMoeda(lista.totais.total)}
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fornecedor</th><th style={{ width: 130 }}>Documento</th><th style={{ width: 60 }}>Parcela</th>
+                    <th style={{ width: 92 }}>Vencimento</th><th style={{ width: 110, textAlign: 'right' }}>Valor</th>
+                    <th style={{ width: 150 }}>EAP</th><th style={{ width: 120 }}>Tipo</th><th>Alerta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lista.titulos.filter(t => t.competencia_vencimento === m.mes).map(t => (
+                    <tr key={t.chave}>
+                      <td>{t.fornecedor}</td>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{t.num_documento}</td>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{t.parcela || '—'}</td>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{dmy(t.data_vencimento)}</td>
+                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>{fmt2(t.valor)}</td>
+                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
+                        {t.eaps.map(e => (e.codigo_eap || 'pendente') + (e.pavimento ? ' ' + e.pavimento : '')).join(', ')}
+                      </td>
+                      <td style={{ fontSize: 11 }}>
+                        {t.tipo === 'direto recorrente' ? 'direto recorrente (fora do card)' : t.tipo}
+                      </td>
+                      <td style={{ fontSize: 11, color: t.alertas.length ? 'var(--amber-tx)' : 'var(--text3)' }}>
+                        {t.alertas.length ? t.alertas.join('; ') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
-        </div>
-      )}
+          ))}
+          <div className="kpi-sub">
+            Totais do fechamento {lista.fechamento}: direto {fmt2(lista.totais.direto)} (entra no card e no custo
+            realizado) · direto recorrente {fmt2(lista.totais.direto_recorrente)} · indireto{' '}
+            {fmt2(lista.totais.indireto)} · pendente {fmt2(lista.totais.pendente)} · geral {fmt2(lista.totais.total)}
+          </div>
+        </>}
     </div>
   )
 }
 
 /* ─── CURVA S SEMANAL ─────────────────────────────────────── */
-function CurvaS({ semanas, semAtual, base }) {
+// so = 'pct' (curva física, horas) | 'rs' (curva financeira, custo direto) | ausente (as quatro linhas)
+function CurvaS({ semanas, semAtual, base, so }) {
   const porHora = base === 'horas'
   const W = 900, H = 340, PADL = 52, PADR = 62, PADT = 26, PADB = 40
   const n = semanas.length
   const [hover, setHover] = useState(null)
   const [ocultas, setOcultas] = useState({})
 
-  const maxFin = Math.max(...semanas.map(m => m.financeiro_planejado || 0), 1)
+  const maxFin = Math.max(...semanas.map(m => Math.max(m.financeiro_planejado || 0, m.financeiro_realizado || 0)), 1)
   const x = i => PADL + (i / (n - 1)) * (W - PADL - PADR)
   const yPct = v => H - PADB - (v / 100) * (H - PADT - PADB)
   const yFin = v => H - PADB - (v / maxFin) * (H - PADT - PADB)
 
-  const series = [
+  const todas = [
     { id: 'fp', nome: porHora ? 'Físico planejado (h)' : 'Físico planejado', cor: '#5B9BD5',
       campo: porHora ? 'hh_planejado' : 'fisico_planejado', esc: yPct, dash: '5,4', tipo: 'pct' },
     { id: 'fr', nome: porHora ? 'Físico realizado (h)' : 'Físico realizado', cor: '#4D9B6A',
@@ -307,6 +375,7 @@ function CurvaS({ semanas, semAtual, base }) {
     { id: '$r', nome: 'Financeiro realizado', cor: '#E91E8C', campo: 'financeiro_realizado',
       esc: yFin, dash: null, tipo: 'rs' },
   ]
+  const series = so ? todas.filter(s => s.tipo === so) : todas
   const visiveis = series.filter(s => !ocultas[s.id])
 
   const linha = (campo, esc) => {
@@ -350,11 +419,12 @@ function CurvaS({ semanas, semAtual, base }) {
           <g key={p}>
             <line x1={PADL} y1={yPct(p)} x2={W - PADR} y2={yPct(p)}
                   stroke="var(--border)" strokeWidth="1" />
-            <text x={PADL - 8} y={yPct(p) + 3} fill="var(--text3)" fontSize="9"
-                  textAnchor="end">{p}%</text>
-            <text x={W - PADR + 8} y={yPct(p) + 3} fill="var(--text3)" fontSize="9">
+            {so !== 'rs' && <text x={PADL - 8} y={yPct(p) + 3} fill="var(--text3)" fontSize="9"
+                  textAnchor="end">{p}%</text>}
+            {so !== 'pct' && <text x={so === 'rs' ? PADL - 8 : W - PADR + 8} y={yPct(p) + 3} fill="var(--text3)" fontSize="9"
+                  textAnchor={so === 'rs' ? 'end' : 'start'}>
               {fmtMoedaK(maxFin * p / 100)}
-            </text>
+            </text>}
           </g>
         ))}
         {semanas.map((m, i) => (m.semana_numero % 8 === 0 || m.semana_numero === 1) && (
@@ -433,8 +503,8 @@ function CurvaS({ semanas, semAtual, base }) {
         })}
       </div>
 
-      {/* atalhos de comparação */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10,
+      {/* atalhos de comparação (só na curva com as quatro linhas) */}
+      {!so && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10,
                     justifyContent: 'center' }}>
         {[['Todas', ['fp', 'fr', '$p', '$r']],
           ['Só físico', ['fp', 'fr']],
@@ -449,12 +519,15 @@ function CurvaS({ semanas, semAtual, base }) {
             </button>
           )
         })}
-      </div>
+      </div>}
 
       <div className="kpi-sub" style={{ marginTop: 12, textAlign: 'center' }}>
-        Eixo esquerdo: avanço físico. Eixo direito: custo direto acumulado.
-        Clique numa legenda para mostrar ou ocultar a linha — dá para deixar quantas
-        quiser ao mesmo tempo. Os atalhos acima montam as comparações mais comuns.
+        {so === 'pct'
+          ? 'Avanço físico acumulado por horas: planejado pela curva do cronograma, realizado pelas medições.'
+          : so === 'rs'
+            ? 'Custo direto acumulado: planejado pelo cronograma e realizado (pago) por semana.'
+            : 'Eixo esquerdo: avanço físico. Eixo direito: custo direto acumulado.'}
+        {' '}Clique numa legenda para mostrar ou ocultar a linha.
       </div>
     </div>
   )

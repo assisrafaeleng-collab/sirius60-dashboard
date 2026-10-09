@@ -8,18 +8,7 @@ export default function PrevisaoDesembolso({ curva, comparativo, k, semana }) {
   const [agrupar, setAgrupar] = useState(true)
   const [soDesvio, setSoDesvio] = useState(false)
 
-  if (!curva || !curva.length) return null
-  const num = v => parseFloat(v || 0)
-  const atual = curva.find(c => c.semana_numero === semana)
-  if (!atual) return null
-
-  const proximas = curva.filter(c => c.semana_numero > semana).slice(0, horizonte)
-  const somaProx = proximas.reduce((s, c) => s + num(c.valor_semanal), 0)
-  const ini = Math.max(1, semana - 4)
-  const janela = curva.filter(c => c.semana_numero >= ini && c.semana_numero < ini + 20)
-  const maxBarra = Math.max(...janela.map(c => num(c.valor_semanal)), 1)
-  const fmtBR = d => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-
+  // (os "return null" ficam DEPOIS dos hooks: regra dos hooks do React)
 
   // linhas do comparativo, por grupo ou por item
   const linhas = useMemo(() => {
@@ -48,6 +37,18 @@ export default function PrevisaoDesembolso({ curva, comparativo, k, semana }) {
     if (soDesvio) l = l.filter(x => x.realizado > 0)
     return verTudo ? l : l.slice(0, 12)
   }, [linhas, verTudo, soDesvio])
+
+  if (!curva || !curva.length) return null
+  const num = v => parseFloat(v || 0)
+  const atual = curva.find(c => c.semana_numero === semana)
+  if (!atual) return null
+
+  const proximas = curva.filter(c => c.semana_numero > semana).slice(0, horizonte)
+  const somaProx = proximas.reduce((s, c) => s + num(c.valor_semanal), 0)
+  const ini = Math.max(1, semana - 4)
+  const janela = curva.filter(c => c.semana_numero >= ini && c.semana_numero < ini + 20)
+  const maxBarra = Math.max(...janela.map(c => num(c.valor_semanal)), 1)
+  const fmtBR = d => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 
   return (
     <>

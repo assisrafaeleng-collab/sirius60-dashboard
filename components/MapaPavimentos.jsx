@@ -18,7 +18,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
   const porHora = base === 'horas'
   // o peso da célula segue a base escolhida no dashboard
   const pesoDe = i => porHora ? i.h : i.c
-  if (!itens || !medido) return null
+  // (o "sem dados ainda" fica DEPOIS dos hooks: regra dos hooks do React)
 
   const planDe = i => {
     if (semana >= i.b) return 100
@@ -28,6 +28,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
 
   const grade = useMemo(() => {
     const m = {}
+    if (!itens || !medido) return m
     itens.forEach(i => {
       if (!m[i.p]) m[i.p] = {}
       if (!m[i.p][i.g]) m[i.p][i.g] = { peso: 0, custo: 0, horas: 0, plan: 0, real: 0,
@@ -48,6 +49,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
     return m
   }, [itens, medido, semana, base])
 
+  if (!itens || !medido) return null
   const pavs = ORDEM.filter(p => grade[p])
   const grupos = [...new Set(itens.map(i => i.g))].sort((a, b) => a - b)
 

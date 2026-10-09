@@ -17,7 +17,7 @@ const SIGLA = {
 export default function FisicoPorAtividade({ itens, medido, semana, base }) {
   const [agrupar, setAgrupar] = useState('grupo')   // grupo | pav
   const [todas, setTodas] = useState(false)
-  if (!itens || !medido) return null
+  // (o "sem dados ainda" fica DEPOIS dos hooks: regra dos hooks do React)
 
   const porHora = base === 'horas'
   const pesoDe = i => porHora ? i.h : i.c
@@ -28,6 +28,7 @@ export default function FisicoPorAtividade({ itens, medido, semana, base }) {
   }
 
   const linhas = useMemo(() => {
+    if (!itens || !medido) return []
     const m = {}
     itens.forEach(i => {
       const k = agrupar === 'grupo' ? i.g : i.p
@@ -54,6 +55,7 @@ export default function FisicoPorAtividade({ itens, medido, semana, base }) {
       .sort((a, b) => (a.num ?? 99) - (b.num ?? 99) || a.nome.localeCompare(b.nome))
   }, [itens, medido, semana, base, agrupar, todas])
 
+  if (!itens || !medido) return null
   if (!linhas.length) return (
     <div className="card">
       <div className="card-title">Físico por atividade — desvio relativo</div>
