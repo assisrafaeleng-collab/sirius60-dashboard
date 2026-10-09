@@ -59,8 +59,13 @@ begin
   select count(*) into k from _h x join public.orcamento_planejado o
     on o.obra_id = 'sirius60' and o.id = x.id and o.codigo_eap = x.codigo_eap and o.pavimento = x.pavimento and round(o.hh, 1) = x.hh_hoje;
   if k <> 21 then raise exception 'só % das 21 linhas estão como hoje: nada foi feito', k; end if;
+  -- base de produção = como o site calcula (grupos 1 a 16, fora a 1.1.6 custo de tempo) = 48.454,9 h
+  select round(sum(hh), 1) into t from public.orcamento_planejado
+   where obra_id = 'sirius60' and grupo_num <= 16 and codigo_eap <> '1.1.6';
+  if t <> 48454.9 then raise exception 'base de produção = % h (esperado 48454,9): nada foi feito', t; end if;
+  -- total geral (todas as linhas, inclusive a 1.1.6) = 49.510,9 h
   select round(sum(hh), 1) into t from public.orcamento_planejado where obra_id = 'sirius60';
-  if t <> 48454.9 then raise exception 'horas da obra = % (esperado 48454,9): nada foi feito', t; end if;
+  if t <> 49510.9 then raise exception 'total geral de horas = % (esperado 49510,9): nada foi feito', t; end if;
   if exists (select 1 from public.avanco_fisico_historico h join _h x on h.codigo_eap = x.codigo_eap and h.pavimento = x.pavimento
               where h.obra_id = 'sirius60' and h.excluido_em is null) then
     raise exception 'alguma dessas linhas já tem medição: o avanço mudaria. Nada foi feito';
@@ -105,8 +110,11 @@ update public.orcamento_planejado o set hh = x.hh_novo from _h x where o.obra_id
 do $$
 declare t numeric;
 begin
+  select round(sum(hh), 1) into t from public.orcamento_planejado
+   where obra_id = 'sirius60' and grupo_num <= 16 and codigo_eap <> '1.1.6';
+  if t <> 48454.9 then raise exception 'base de produção mudou para % h: nada foi gravado', t; end if;
   select round(sum(hh), 1) into t from public.orcamento_planejado where obra_id = 'sirius60';
-  if t <> 48454.9 then raise exception 'horas da obra mudaram para %: nada foi gravado', t; end if;
+  if t <> 49510.9 then raise exception 'total geral de horas mudou para %: nada foi gravado', t; end if;
   if exists (select 1 from public.orcamento_planejado where id in (992, 993) and hh <> 0) then
     raise exception '3.0.1 / 4.0.9 não ficaram com 0 h: nada foi gravado';
   end if;
