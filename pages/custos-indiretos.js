@@ -15,12 +15,40 @@ const { economia: VERDE, estouro: VERMELHO, aPagar: AMBAR } = CORES_VA
 const AZUL = '#5B9BD5'
 const REALIZADO = CORES.realizado   // branco (pedido 13E)
 
+// Ordenação (pedido 13F): padrão = código EAP em ordem numérica (19.1.2 antes de 19.1.10). Clicar no título da
+// coluna ordena por ela; clicar de novo inverte. O seletor "Ordenar por" é a mesma ordem (coluna + sentido).
 const ORDENS = [
-  { v: 'acumulado', l: 'Maior acumulado' },
-  { v: 'total', l: 'Maior total do projeto' },
-  { v: 'nome', l: 'Categoria (A-Z)' },
-  { v: 'realizado', l: 'Maior realizado' },
+  { v: 'eap|asc', l: 'Código EAP' },
+  { v: 'acumulado|desc', l: 'Maior acumulado' },
+  { v: 'total|desc', l: 'Maior total do projeto' },
+  { v: 'categoria|asc', l: 'Categoria (A-Z)' },
+  { v: 'realizado|desc', l: 'Maior realizado' },
 ]
+const cmpEap = (a, b) => {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number)
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? -1) - (y[i] ?? -1)
+    if (d) return d
+  }
+  return 0
+}
+// valor de cada coluna; null = célula vazia ("—"), que vai para o fim nos dois sentidos
+const VALOR = {
+  eap: c => c.codigo_eap || null,
+  categoria: c => c.categoria || null,
+  total: c => c.valor_total > 0.005 ? c.valor_total : null,
+  acumulado: c => c.acumulado > 0.005 ? c.acumulado : null,
+  pago: c => c.pago > 0.005 ? c.pago : null,
+  a_pagar: c => c.a_pagar > 0.005 ? c.a_pagar : null,
+  realizado: c => c.realizado > 0.005 ? c.realizado : null,
+  desvio: c => c.realizado <= 0 && c.acumulado <= 0 ? null : c.desvio,
+  desembolsado: c => c.pct_desembolsado,
+}
+const BLOCOS = [
+  { chave: 'p', recorrente: false, titulo: 'Pontuais (terreno, impostos, projetos, registros, taxas)', curto: 'pontuais' },
+  { chave: 'r', recorrente: true, titulo: 'Recorrentes (diluídos pela obra)', curto: 'recorrentes' },
+]
+const TEXTO = { eap: true, categoria: true }   // primeiro clique: texto A→Z, números do maior para o menor
 
 export default function CustosIndiretos() {
   const router = useRouter()
@@ -28,7 +56,7 @@ export default function CustosIndiretos() {
   const [d, setD] = useState(null)
   const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
-  const [ordem, setOrdem] = useState('acumulado')
+  const [ordem, setOrdem] = useState({ col: 'eap', dir: 'asc' })
   const [visao, setVisao] = useState('vs')   // 'vs' = planejado x realizado | 'plan'
   const [linhaAberta, setLinhaAberta] = useState(null)   // lançamentos abertos (id da categoria); tudo recolhido
 
@@ -47,19 +75,125 @@ export default function CustosIndiretos() {
     if (!d) return []
     const q = busca.trim().toLowerCase()
     const l = d.categorias.filter(c => !q || c.categoria.toLowerCase().includes(q))
-    const cmp = {
-      acumulado: (a, b) => b.acumulado - a.acumulado,
-      total: (a, b) => b.valor_total - a.valor_total,
-      nome: (a, b) => a.categoria.localeCompare(b.categoria),
-      realizado: (a, b) => b.realizado - a.realizado,
-    }
-    return [...l].sort(cmp[ordem])
+    const val = VALOR[ordem.col]
+    const sinal = ordem.dir === 'asc' ? 1 : -1
+    return [...l].sort((a, b) => {
+      const x = val(a), y = val(b)
+      if (x == null || y == null) return x == null && y == null ? cmpEap(a.codigo_eap, b.codigo_eap) : x == null ? 1 : -1
+      const d = ordem.col === 'eap' ? cmpEap(x, y) : TEXTO[ordem.col] ? String(x).localeCompare(String(y), 'pt-BR') : x - y
+      return sinal * d || cmpEap(a.codigo_eap, b.codigo_eap)
+    })
   }, [d, busca, ordem])
 
+  const ordenarPor = col => setOrdem(o => o.col === col ? { col, dir: o.dir === 'asc' ? 'desc' : 'asc' }
+    : { col, dir: TEXTO[col] ? 'asc' : 'desc' })
+  const valorSelect = `${ordem.col}|${ordem.dir}`
+  // título de coluna clicável, com ▲/▼ na coluna ativa
+  const th = (col, children, w, title, direita) => (
+    <th key={col} style={{ width: w, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', textAlign: direita ? 'right' : 'left' }} title={title}
+        onClick={() => ordenarPor(col)}>
+      {children}
+      <span style={{ marginLeft: 4, color: ordem.col === col ? 'var(--text)' : 'transparent' }}>
+        {ordem.col === col && ordem.dir === 'desc' ? '▼' : '▲'}
+      </span>
+    </th>
+  )
   const fmtBR = x => x.toLocaleDateString('pt-BR')
   const vs = visao === 'vs'
   const corDesvio = dv => dv == null || Math.abs(dv) < 0.005 ? 'var(--text3)' : dv > 0 ? VERDE : VERMELHO
   const txtPct = dv => dv == null ? '—' : (dv > 0 ? '+' : '') + fmtPct(dv)
+  // Tabela por categoria (pedido 13G): seta em coluna própria, TIPO em coluna, blocos pontuais / recorrentes com
+  // subtotal e total geral; células centralizadas na vertical, números à direita em fonte mono.
+  const nCols = vs ? 9 : 7
+  const celula = { verticalAlign: 'middle', height: 50 }
+  const num = { ...celula, textAlign: 'right', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }
+  const vazio = <span style={{ color: 'var(--text3)', fontWeight: 400 }}>—</span>
+  // desvio em duas linhas (valor em cima, % embaixo); "a realizar" e "—" numa linha só, centrada na mesma altura
+  // (a linha tem altura fixa)
+  const duasLinhas = (cima, baixo, cor) => (
+    <>
+      <div style={{ color: cor }}>{cima}</div>
+      {baixo != null && <div style={{ fontSize: 10, color: cor }}>{baixo}</div>}
+    </>
+  )
+  const somaInd = (ls) => {
+    const t = { valor_total: 0, acumulado: 0, pago: 0, a_pagar: 0 }
+    ls.forEach(c => Object.keys(t).forEach(k => { t[k] += Number(c[k]) || 0 }))
+    t.realizado = t.pago + t.a_pagar
+    t.desvio = t.acumulado - t.realizado
+    t.desvio_pct = t.acumulado > 0 ? 100 * t.desvio / t.acumulado : (t.realizado > 0 ? -100 : null)
+    return t
+  }
+  const desvioCel = (c, aRealizar, peso) => (
+    <td style={{ ...num, fontSize: 11, fontWeight: peso }}
+        title={c.realizado > 0 || c.acumulado > 0
+          ? `Planejado − (pago + a pagar)\n= ${fmtMoeda(c.acumulado)} − (${fmtMoeda(c.pago)} + ${fmtMoeda(c.a_pagar)})` : ''}>
+      {c.realizado <= 0 && c.acumulado <= 0 ? duasLinhas('—', null, 'var(--text3)')
+        : aRealizar ? duasLinhas('a realizar', null, 'var(--text3)')
+        : duasLinhas((c.desvio > 0.005 ? '+' : '') + fmtMoeda(c.desvio), txtPct(c.desvio_pct), corDesvio(c.desvio))}
+    </td>
+  )
+  const linha = (c) => {
+    const lanc = c.lancamentos || []
+    const on = linhaAberta === c.id
+    // pontual com planejado e nada pago nem a pagar: ainda não aconteceu, não é economia (13E)
+    const aRealizar = !c.recorrente && c.acumulado > 0.005 && !(c.pago > 0.005) && !(c.a_pagar > 0.005)
+    return (
+      <React.Fragment key={c.id}>
+        <tr onClick={() => lanc.length && setLinhaAberta(on ? null : c.id)} style={{ cursor: lanc.length ? 'pointer' : 'default' }}>
+          <td style={{ ...celula, padding: '0 0 0 2px', fontSize: 10, color: 'var(--text3)' }}>{lanc.length > 0 ? (on ? '▾' : '▸') : ''}</td>
+          <td style={{ ...celula, fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{c.codigo_eap || '—'}</td>
+          <td style={celula}>{c.categoria}</td>
+          <td style={{ ...celula, fontSize: 11, color: 'var(--text3)' }}>{c.recorrente ? 'recorrente' : 'pontual'}</td>
+          <td style={{ ...num, color: 'var(--text2)' }}>{fmtMoeda(c.valor_total)}</td>
+          <td style={{ ...num, fontWeight: 600, color: vs ? AZUL : 'var(--accent)' }}>{c.acumulado > 0 ? fmtMoeda(c.acumulado) : vazio}</td>
+          {vs && (
+            <td style={{ ...num, fontWeight: 600, color: REALIZADO }}
+                title={c.pago > 0 ? '' : c.acumulado > 0 ? 'planejado e ainda não pago' : ''}>
+              {c.pago > 0 ? fmtMoeda(c.pago) : vazio}
+            </td>
+          )}
+          {vs && <td style={{ ...num, color: c.a_pagar > 0 ? AMBAR : 'var(--text3)' }}>{c.a_pagar > 0 ? fmtMoeda(c.a_pagar) : '—'}</td>}
+          {vs && desvioCel(c, aRealizar)}
+          {!vs && (
+            <td style={celula}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 11, minWidth: 46, textAlign: 'right' }}>{fmtPct(c.pct_desembolsado, 0)}</span>
+                <div className="prog-track" style={{ height: 6 }}>
+                  <div className="prog-fill" style={{ width: c.pct_desembolsado + '%',
+                    background: c.pct_desembolsado >= 100 ? 'var(--green)' : 'var(--blue)' }} />
+                </div>
+              </div>
+            </td>
+          )}
+        </tr>
+        {on && (
+          <tr>
+            <td colSpan={nCols} style={{ padding: 0 }}>
+              <ListaLancamentos lancamentos={lanc} rotuloPago={false} />
+            </td>
+          </tr>
+        )}
+      </React.Fragment>
+    )
+  }
+  // subtotal do bloco ou total geral (soma de TODAS as linhas, mesmo com busca: bate com os cards)
+  const linhaTotal = (nome, t, geral) => {
+    const peso = 600
+    const fundo = { background: 'var(--bg3)' }
+    return (
+      <tr style={fundo}>
+        <td style={celula} />
+        <td colSpan={3} style={{ ...celula, fontWeight: peso, ...(geral ? { textTransform: 'uppercase', letterSpacing: '.04em' } : {}) }}>{nome}</td>
+        <td style={{ ...num, fontWeight: peso }}>{fmtMoeda(t.valor_total)}</td>
+        <td style={{ ...num, fontWeight: peso, color: vs ? AZUL : 'var(--accent)' }}>{fmtMoeda(t.acumulado)}</td>
+        {vs && <td style={{ ...num, fontWeight: peso, color: REALIZADO }}>{fmtMoeda(t.pago)}</td>}
+        {vs && <td style={{ ...num, fontWeight: peso, color: t.a_pagar > 0.005 ? AMBAR : 'var(--text3)' }}>{t.a_pagar > 0.005 ? fmtMoeda(t.a_pagar) : '—'}</td>}
+        {vs && desvioCel(t, false, peso)}
+        {!vs && <td style={{ ...num, fontWeight: peso }}>{fmtPct(t.valor_total > 0 ? 100 * t.acumulado / t.valor_total : 0, 0)}</td>}
+      </tr>
+    )
+  }
 
   return (
     <>
@@ -160,8 +294,10 @@ export default function CustosIndiretos() {
                   </div>
                   <div className="field">
                     <label>Ordenar por</label>
-                    <select className="styled" value={ordem} onChange={e => setOrdem(e.target.value)}>
+                    <select className="styled" value={valorSelect}
+                            onChange={e => { const [col, dir] = e.target.value.split('|'); setOrdem({ col, dir }) }}>
                       {ORDENS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                      {!ORDENS.some(o => o.v === valorSelect) && <option value={valorSelect}>Pela coluna clicada</option>}
                     </select>
                   </div>
                 </div>
@@ -172,113 +308,58 @@ export default function CustosIndiretos() {
                 {!lista.length ? (
                   <div className="empty-state"><h3>Nenhuma categoria encontrada</h3></div>
                 ) : (
-                  <table>
+                  <table style={{ tableLayout: 'fixed', width: '100%' }}>
+                    <colgroup>
+                      <col style={{ width: 16 }} />
+                      <col style={{ width: 66 }} />
+                      <col />
+                      <col style={{ width: 84 }} />
+                      <col style={{ width: 128 }} />
+                      <col style={{ width: 128 }} />
+                      {vs && <col style={{ width: 128 }} />}
+                      {vs && <col style={{ width: 112 }} />}
+                      {vs && <col style={{ width: 128 }} />}
+                      {!vs && <col style={{ width: 170 }} />}
+                    </colgroup>
                     <thead>
                       <tr>
-                        <th style={{ width: 62 }}>EAP</th>
-                        <th>Categoria</th>
-                        <th style={{ width: 116 }}>Total projeto</th>
-                        <th style={{ width: 116 }}>Planejado</th>
-                        {vs && <th style={{ width: 130 }}>Pago</th>}
-                        {vs && <th style={{ width: 116 }}>A pagar</th>}
-                        {vs && <th style={{ width: 120 }} title="Planejado − (pago + a pagar). Positivo = economia (verde), negativo = estouro (vermelho); o % é sobre o planejado">Desvio</th>}
-                        {!vs && <th style={{ width: 150 }}>Desembolsado</th>}
+                        <th />
+                        {th('eap', 'EAP')}
+                        {th('categoria', 'Categoria')}
+                        <th>Tipo</th>
+                        {th('total', 'Total projeto', null, null, true)}
+                        {th('acumulado', 'Planejado', null, null, true)}
+                        {vs && th('pago', 'Pago', null, null, true)}
+                        {vs && th('a_pagar', 'A pagar', null, null, true)}
+                        {vs && th('desvio', 'Desvio', null, 'Planejado − (pago + a pagar). Positivo = economia (verde), negativo = estouro (vermelho); o % é sobre o planejado', true)}
+                        {!vs && th('desembolsado', 'Desembolsado', null, null, true)}
                       </tr>
                     </thead>
-                    <tbody>
-                      {lista.map(c => {
-                        const lanc = c.lancamentos || []
-                        const on = linhaAberta === c.id
-                        // pontual com planejado e nada pago nem a pagar: ainda não aconteceu, não é economia (13E)
-                        const aRealizar = !c.recorrente && c.acumulado > 0.005 && !(c.pago > 0.005) && !(c.a_pagar > 0.005)
-                        return (
-                        <React.Fragment key={c.id}>
-                        <tr onClick={() => lanc.length && setLinhaAberta(on ? null : c.id)}
-                            style={{ cursor: lanc.length ? 'pointer' : 'default' }}>
-                          <td style={{ fontFamily: 'var(--mono)', fontSize: 11,
-                                       color: 'var(--text3)' }}>
-                            {lanc.length > 0 && <span style={{ marginRight: 4 }}>{on ? '▾' : '▸'}</span>}
-                            {c.codigo_eap || '—'}
-                          </td>
-                          <td>
-                            {c.categoria}
-                            {c.recorrente && (
-                              <span className="badge badge-blue" style={{ marginLeft: 8 }}>
-                                recorrente
-                              </span>
-                            )}
-                          </td>
-                          <td style={{ fontFamily: 'var(--mono)', color: 'var(--text2)' }}>
-                            {fmtMoeda(c.valor_total)}
-                          </td>
-                          <td style={{ fontFamily: 'var(--mono)', fontWeight: 600,
-                                       color: vs ? AZUL : 'var(--accent)' }}>
-                            {c.acumulado > 0 ? fmtMoeda(c.acumulado)
-                              : <span style={{ color: 'var(--text3)', fontWeight: 400 }}>—</span>}
-                          </td>
-                          {vs && (
-                            <td style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: REALIZADO }}
-                                title={c.pago > 0 ? '' : c.acumulado > 0 ? 'planejado e ainda não pago' : ''}>
-                              {c.pago > 0 ? fmtMoeda(c.pago)
-                                : <span style={{ color: 'var(--text3)', fontWeight: 400 }}>—</span>}
-                            </td>
-                          )}
-                          {vs && (
-                            <td style={{ fontFamily: 'var(--mono)', color: c.a_pagar > 0 ? AMBAR : 'var(--text3)' }}>
-                              {c.a_pagar > 0 ? fmtMoeda(c.a_pagar) : '—'}
-                            </td>
-                          )}
-                          {vs && (
-                            <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: corDesvio(c.desvio) }}
-                                title={c.realizado > 0 || c.acumulado > 0
-                                  ? `Planejado − (pago + a pagar)
-= ${fmtMoeda(c.acumulado)} − (${fmtMoeda(c.pago)} + ${fmtMoeda(c.a_pagar)})` : ''}>
-                              {c.realizado <= 0 && c.acumulado <= 0 ? '—' : aRealizar ? (
-                                <span style={{ color: 'var(--text3)' }} title="Pontual planejado até a semana, sem nada pago nem a pagar">a realizar</span>
-                              ) : (
-                                <>
-                                  {(c.desvio > 0.005 ? '+' : '') + fmtMoeda(c.desvio)}
-                                  <div style={{ fontSize: 10 }}>{txtPct(c.desvio_pct)}</div>
-                                </>
-                              )}
-                            </td>
-                          )}
-                          {!vs && (
-                            <td>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ fontFamily: 'var(--mono)', fontSize: 11,
-                                               minWidth: 42, textAlign: 'right' }}>
-                                  {fmtPct(c.pct_desembolsado, 0)}
-                                </span>
-                                <div className="prog-track" style={{ height: 6 }}>
-                                  <div className="prog-fill" style={{
-                                    width: c.pct_desembolsado + '%',
-                                    background: c.pct_desembolsado >= 100
-                                      ? 'var(--green)' : 'var(--blue)',
-                                  }} />
-                                </div>
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                        {on && (
+                    {BLOCOS.map(b => {
+                      const linhas = lista.filter(c => !!c.recorrente === b.recorrente)
+                      const todas = d.categorias.filter(c => !!c.recorrente === b.recorrente)
+                      if (!todas.length) return null
+                      return (
+                        <tbody key={b.chave}>
                           <tr>
-                            <td colSpan={vs ? 7 : 5} style={{ padding: 0 }}>
-                              <ListaLancamentos lancamentos={lanc} rotuloPago={false} />
+                            <td colSpan={nCols} style={{ ...celula, paddingTop: 18, font: "600 11px 'IBM Plex Mono', monospace",
+                                                         letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--text2)' }}>
+                              {b.titulo}
                             </td>
                           </tr>
-                        )}
-                        </React.Fragment>
-                        )
-                      })}
-                    </tbody>
+                          {linhas.map(c => linha(c))}
+                          {linhaTotal(`Subtotal ${b.curto}`, somaInd(todas))}
+                        </tbody>
+                      )
+                    })}
+                    <tbody>{linhaTotal('Total geral', somaInd(d.categorias), true)}</tbody>
                   </table>
                 )}
 
                 <div className="notas-box" style={{ marginTop: 16 }}>
-                  Categorias marcadas como <b>recorrentes</b> desembolsam um pouco a cada
-                  semana ao longo das {OBRA.prazo_semanas} semanas. As demais concentram o
-                  desembolso nas semanas indicadas na primeira coluna.
+                  As <b>recorrentes</b> desembolsam um pouco a cada semana ao longo das {OBRA.prazo_semanas} semanas;
+                  as <b>pontuais</b> concentram o desembolso no mês previsto. Os subtotais e o total geral somam todas as
+                  linhas do bloco, mesmo com a busca; o total geral bate com os cards.
                 </div>
               </div>
             </>

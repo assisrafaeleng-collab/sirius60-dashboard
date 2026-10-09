@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { fmtMoedaK, fmtPct, CORES } from '../lib/constants'
+import { fmtMoedaK, fmtPct, CORES_VA } from '../lib/constants'
 
-const VERDE = CORES.realizado   // executado = realizado, branco (pedido 13E)
+const VERDE = CORES_VA.economia   // executado em verde #7fb08a (barra, legenda e número; pedido 13F)
 const VERM  = '#B03030'
 const AZUL  = '#5B6B9B'
 
@@ -113,7 +113,7 @@ export default function FisicoPorAtividade({ itens, medido, semana, base }) {
                    title={`a executar ${fmtPct(falta, 1)}`} />
             </div>
 
-            <div style={{ width: 62, textAlign: 'right', font: '600 12px var(--mono)' }}>
+            <div style={{ width: 62, textAlign: 'right', font: '600 12px var(--mono)', color: VERDE }}>
               {fmtPct(exec, 1)}
             </div>
             <div style={{ width: 62, textAlign: 'right', font: '600 12px var(--mono)',
