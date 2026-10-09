@@ -10,11 +10,14 @@ Regra (CLAUDE.md, 08/10/2026; lógica do Flats, lib/painel-semanal.js AGREGADO_H
   material de escada → execução de escada; material hidráulico → 6.1.1 (ramais) e 6.1.1.1 (prumadas) pelas horas; material elétrico → MO elétrica.
 - Valor agregado do material = o MAIOR entre (a) avanço do serviço × orçado do material (herança) e (b) custo da
   linha (pago + a pagar) limitado ao orçado.
+- Material ou serviço e o tipo de cada linha vêm da tabela fixa por ID (tipos_linha_orcamento.csv, pedido 13H,
+  09/10/2026), NÃO do texto da descrição: renomear uma linha no orçamento não muda o vínculo.
 - Diferença em relação ao Flats: lá o concreto usinado fica FORA da regra e entra pela medição; no Sirius o Rafael
   decidiu (08/10) vincular o concreto à concretagem MO.
 """
 import argparse, os
 import pandas as pd
+from tipos_linha import juntar_tipos
 
 OBRA = 'sirius60'
 REGRA = 'herança: maior entre (avanço do serviço × orçado do material) e (custo pago + a pagar, limitado ao orçado)'
@@ -26,50 +29,6 @@ FIXO_ID = {720: 721}
 VARIOS_SERVICOS = {'hidraulica'}
 
 
-def eh_material(o):
-    d = str(o.descricao).upper()
-    if o.grupo_num >= 17:
-        return False
-    return ('APENAS MATERIAL' in d or d.startswith('AÇO CA-50') or d.startswith('CONCRETO USINADO')
-            or d.startswith('MATERIAL HIDRAULICO') or d.startswith('MATERIAL ELETRICO'))
-
-
-def tipo_material(d):
-    d = str(d).upper()
-    if 'ESCADA' in d:
-        return 'escada'
-    if 'FORMA' in d:
-        return 'forma'
-    if d.startswith('AÇO') or 'AÇO ' in d:
-        return 'armacao'
-    if 'CONCRETO' in d:
-        return 'concretagem'
-    if 'HIDRAULICO' in d:
-        return 'hidraulica'
-    if 'ELETRICO' in d:
-        return 'eletrica'
-    return ''
-
-
-def tipo_servico(d):
-    d = str(d).upper()
-    if 'APENAS MATERIAL' in d:
-        return ''
-    if 'ESCADA' in d and 'MO' in d:
-        return 'escada'
-    if 'FORMA' in d and ('APENAS MO' in d or '(MO)' in d):
-        return 'forma'
-    if 'ARMAÇÃO' in d:
-        return 'armacao'
-    if ('LANÇAMENTO' in d or 'CONCRETAGEM' in d) and 'PISO' not in d:
-        return 'concretagem'
-    if d.startswith('MO DE OBRA HIDRAULICA') or d.startswith('MO HIDRÁULICA'):
-        return 'hidraulica'
-    if d.startswith('MO ELETRICA'):
-        return 'eletrica'
-    return ''
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--orcamento', default='saida_v2/orcamento_banco_pos3.csv')
@@ -78,9 +37,10 @@ def main():
     a = ap.parse_args()
     orc = pd.read_csv(a.orcamento, dtype={'codigo_eap': str})
     orc['subgrupo'] = orc.codigo_eap.str.split('.').str[:2].str.join('.')
-    orc['material'] = [eh_material(o) for o in orc.itertuples()]
-    orc['tipo_mat'] = [tipo_material(d) if m else '' for d, m in zip(orc.descricao, orc.material)]
-    orc['tipo_srv'] = [tipo_servico(d) if not m else '' for d, m in zip(orc.descricao, orc.material)]
+    # material / tipo do material / tipo do serviço: pela tabela fixa por id (tipos_linha.py), não pelo texto
+    orc = juntar_tipos(orc)
+    orc['tipo_mat'] = orc.tipo_material.where(orc.material, '')
+    orc['tipo_srv'] = orc.tipo_servico.where(~orc.material, '')
     por_id = orc.set_index('id')
 
     out, pend = [], []

@@ -183,6 +183,27 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
 - SQL do orçamento final: supabase/orcamento/1-orcamento-final.sql (+ desfazer), com travas
   (antes: 333 linhas e 7.398.635,20; depois: 334 linhas e 7.551.387,47). Ordem: promover def580f → conferir
   o site (números iguais) → rodar o SQL.
+- Descrições novas da fundação e da estrutura (pedido 13H, Rafael 09/10): planilha revisada muda SÓ a descrição de
+  69 linhas (2.1.x e 3.x); SQL em supabase/orcamento/5-descricoes-fundacao-estrutura.sql. Decisões:
+  - 3.2.5 e 3.3.5: MANTER "3 utilizações" (não o "4 utilizações" da planilha nova): "Forma de chapa compensada
+    plastificada 18 mm, 3 utilizações - (Viga,Pilares e Laje Maçiça) - (Mão de Obra)".
+  - 2.1.6: "Montatem" corrigido para "Montagem": "Montagem Forma - (Blocos- Vigas -Pilares) - (Mão de Obra)".
+  - As duas correções valem na planilha (automacao\orcamentos\) e no banco, para ficarem iguais.
+  - 2º Pav: a descrição vai pela FUNÇÃO da linha (id 720 = material → "Material p/ Forma (Apenas Material)";
+    id 721 = MO → "... - (Mão de Obra)"), não pelo código. Limpeza só de espaços duplos/início/fim.
+  - Correções de digitação (Rafael, 09/10), iguais na planilha e no SQL 5: 2.1.5 = "Concreto Bombeado fck 25 MPa
+    (Bloco, vigas e pilares) - (Material)"; sem espaço dentro dos parênteses, espaço antes de "(" e depois de vírgula
+    ("(Bloco, vigas e pilares)", "(Viga, Pilares e Laje Maciça)"); fundação no padrão da estrutura ("Concreto Escada -
+    (Apenas Material)", "Material Forma Escada - (Apenas Material)"); "Maçiça" → "Maciça"; "25Mpa" → "25 MPa".
+    Traços ("Blocos- Vigas -Pilares", 2.1.6) ficaram como estão.
+  - Backups: planilha antiga ..._backup_2026-10-09.xlsx, a nova como chegou ..._recebida_2026-10-09.xlsx e antes das
+    correções de digitação ..._backup_2026-10-09_antes_digitacao.xlsx.
+- Tipo de cada linha por ID, NÃO pelo texto (pedido 13H, Rafael 09/10): automacao/vinculo_material.py e
+  automacao/cronograma.py leem automacao/tipos_linha_orcamento.csv (via tipos_linha.py): material, tipo do material,
+  tipo do serviço, janela na estrutura e atividade do cronograma. A tabela é o resultado das regras de texto antigas
+  sobre o orçamento de 09/10 (scripts antigos em automacao/backup_2026-10-09_pedido13H/). Provado: com os nomes
+  novos, os dois scripts dão exatamente os mesmos vínculos (53), o mesmo SQL 4, as mesmas semanas e as mesmas horas
+  por semana. Linha nova no orçamento: acrescentar à mão na tabela (sem ela o script para com erro).
 
 ## Contas a pagar (decisões do Rafael, 08/10/2026)
 - Fonte: os mesmos relatórios completos de automacao\entrada\ (Fonseca e Dinâmica). A Dinâmica também pode ter

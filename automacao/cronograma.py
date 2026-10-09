@@ -12,7 +12,7 @@ Regras (CLAUDE.md, 08/10/2026):
   Semana k do cronograma = mês M = ceil(k/4) (M01 = ago/2026), posição p = k − 4(M−1), que ocupa a fração
   (p−1)/4 … p/4 dos DIAS do mês no calendário. Horas (e valor) da atividade: iguais em cada semana do cronograma
   e espalhadas linearmente pelos dias dessa fração; somadas por semana real.
-- Ligação: por pavimento + serviço (os códigos do cronograma não são os da EAP). Encunhamento de cada pavimento →
+- Ligação (tabela fixa por id, tipos_linha_orcamento.csv, pedido 13H): por pavimento + serviço (os códigos do cronograma não são os da EAP). Encunhamento de cada pavimento →
   "Alvenaria <pavimento>" (as horas do cronograma já o incluem); 4.0.9 → 4.9. Custo de tempo (1.1.6, grupos 17,
   18 e 19) não entra no avanço.
 - Sequência dentro da estrutura de cada pavimento (Rafael, 08/10; pedido 12): cada linha tem a SUA janela dentro da
@@ -25,6 +25,7 @@ Regras (CLAUDE.md, 08/10/2026):
 import argparse, glob, math, os, re
 from datetime import date, timedelta
 import pandas as pd
+from tipos_linha import juntar_tipos
 
 INICIO, FIM = date(2026, 8, 3), date(2028, 7, 31)
 MES0 = (2026, 8)          # M01 = ago/2026
@@ -142,27 +143,9 @@ PAV_EST = {'Pilotis': '3.1', 'Subsolo': '3.2', 'Térreo': '3.3', '1º Pav': '3.4
            'Terraço': '3.7', 'Reservatório': '3.8'}
 PAV_ALV = {'Subsolo': '4.1', 'Pilotis': '4.2', 'Térreo': '4.3', '1º Pav': '4.4', '2º Pav': '4.5', '3º Pav': '4.6',
            'Terraço': '4.7', 'Reservatório': '4.8'}
-# (código do orçamento ou prefixo, função do pavimento/descrição) -> atividade do cronograma
-FIXO = {
-    **{f'1.1.{i}': '1.1.1' for i in range(1, 6)},
-    '2.1.1': '2.1.1', '2.1.2': '2.1.2', '2.1.3': '2.1.3', '2.1.4': '2.1.3', '2.1.6': '2.1.3', '2.1.7': '2.1.3',
-    '2.1.5': '2.1.4', '2.1.8': '2.1.4', '2.1.9': '2.1.5', '2.1.14': '2.1.6',
-    '4.0.9': '4.9',
-    '5.1.1': '5.1.1', '5.1.2': '5.1.2', '5.1.3': '5.1.3',
-    '6.1.1': '6.1.2', '6.1.1.1': '6.1.1', '6.1.2': '6.1.3',
-    '7.1.1': '7.1.1', '7.1.2': '7.1.3',
-    '8.1.1': '8.1.1', '8.1.2': '8.1.1', '8.1.3': '8.1.1', '8.1.4': '8.1.1', '8.1.5': '8.1.16',
-    '9.1.1': '9.1.1', '9.1.2': '9.1.2', '9.1.3': '9.1.5', '9.1.4': '9.1.5', '9.1.5': '9.1.5',
-    '10.1.1': '10.1.1', '10.1.2': '10.1.2', '10.1.3': '10.1.2', '10.1.4': '10.1.2',
-    '11.1.1': '11.1.9', '11.1.2': '11.1.2', '11.1.3': '11.1.3', '11.1.4': '11.1.4', '11.1.7': '11.1.8',
-    '11.1.8': '11.1.9', '11.1.9': '11.1.10',
-    '12.1.1': '12.1.d', '12.1.2': '12.1.d', '12.1.6': '12.1.d',
-    **{f'12.1.{i}': '12.1.a' for i in (3, 4, 5)}, **{f'12.1.{i}': '12.1.b' for i in range(7, 14)},
-    **{f'12.1.{i}': '12.1.c' for i in range(14, 20)},
-    '13.1.1': '13.1.1', '13.1.2': '13.1.2', '13.1.3': '13.1.6', '13.1.6': '13.1.6', '13.1.4': '13.1.4', '13.1.5': '13.1.4',
-    '14.1.5': '14.1.5', '14.1.12': '14.1.5', **{f'14.1.{i}': '14.1.1' for i in (1, 2, 3, 4, 6, 7, 8, 9, 10, 11)},
-    '15.1.1': '15.1.1', '15.1.2': '15.1.2', '15.1.3': '15.1.3', '15.1.4': '15.1.4',
-}
+# Ligação orçamento → atividade do cronograma e tipo de serviço na estrutura (pedido 13H, 09/10/2026): vêm da tabela
+# fixa por ID tipos_linha_orcamento.csv (tipos_linha.py), NÃO do texto da descrição. A tabela é o resultado das regras
+# antigas (FIXO, ligar e servico_estrutura, em backup_2026-10-09_pedido13H/cronograma.py) sobre o orçamento de 09/10.
 # Escadas (Rafael, 08/10): na ÚLTIMA semana da atividade de estrutura do pavimento. Fundação: a estrutura da fundação
 # é a concretagem de blocos, tubulões e vigas (2.1.4 do cronograma).
 ESTRUTURA_FUNDACAO = '2.1.4'
@@ -180,22 +163,6 @@ JANELAS_ESTRUTURA = {
 # semana depois e as duas correm juntas. As outras atividades da fundação já vêm em sequência no cronograma
 # (escavação → forma/armação → concretagem → piso → impermeabilização).
 JANELAS_FUNDACAO_213 = {'armacao': [(0, 9.5, 1)], 'forma': [(0.5, 10, 1)]}
-
-
-def servico_estrutura(descricao):
-    """tipo de serviço de uma linha da estrutura (grupos 2 e 3) pela descrição; o material vai junto do serviço"""
-    d = str(descricao).upper()
-    if 'ESCADA' in d:
-        return 'escada'
-    if 'TRELI' in d:
-        return 'laje_trelicada'
-    if 'FORMA' in d:
-        return 'forma'
-    if 'ARMAÇÃO' in d or d.startswith('AÇO'):
-        return 'armacao'
-    if 'CONCRETO USINADO' in d or 'LANÇAMENTO' in d:
-        return 'concretagem'
-    return ''
 
 
 # Encunhamento (Rafael, 08/10): em cada pavimento, começa na semana REAL seguinte ao fim da alvenaria do mesmo
@@ -225,40 +192,14 @@ def janelas(o, dur, sequencia=True):
     if not sequencia:
         return [(0, dur, 1)]
     if o.atividade in PAV_EST.values() and dur in JANELAS_ESTRUTURA:
-        tipo = servico_estrutura(o.descricao)
+        tipo = o.servico_estrutura
         if tipo:
             return JANELAS_ESTRUTURA[dur][tipo]
     if o.atividade == '2.1.3':
-        tipo = servico_estrutura(o.descricao)
+        tipo = o.servico_estrutura
         if tipo in JANELAS_FUNDACAO_213:
             return JANELAS_FUNDACAO_213[tipo]
     return [(0, dur, 1)]
-
-
-def ligar(o):
-    eap, pav, d = o.codigo_eap, o.pavimento, str(o.descricao).upper()
-    g = int(o.grupo_num)
-    if eap == '1.1.6' or g >= 17:
-        return '', 'custo de tempo: fora do avanço'
-    if eap in FIXO:
-        return FIXO[eap], 'serviço'
-    if 'ESCADA' in d and g in (2, 3):
-        if g == 2:
-            return ESTRUTURA_FUNDACAO, 'ESCADA: última semana da estrutura da fundação'
-        if pav in PAV_EST:
-            return PAV_EST[pav], 'ESCADA: última semana da estrutura do pavimento'
-    if g == 3:
-        if 'PISO POLIDO' in d:
-            return '11.1.6', 'piso polido (cronograma: "junto à laje de cada pavimento")'
-        if pav in PAV_EST:
-            return PAV_EST[pav], 'estrutura do pavimento'
-    if g == 4 and pav in PAV_ALV and 'ENCUNHAMENTO' in d:
-        return PAV_ALV[pav], ENCUNHAMENTO
-    if g == 4 and pav in PAV_ALV:
-        # o cronograma soma o encunhamento de cada pavimento dentro da "Alvenaria <pavimento>"; a 4.9 (60,1 h) é a
-        # linha 4.0.9 do orçamento (vergas, contravergas e encunhamento diluídos)
-        return PAV_ALV[pav], 'alvenaria/verga/encunhamento do pavimento'
-    return '', 'SEM ATIVIDADE'
 
 
 if __name__ == '__main__':
@@ -278,7 +219,7 @@ if __name__ == '__main__':
     os.makedirs(a.saida, exist_ok=True)
 
     # 1) ligação
-    orc[['atividade', 'regra']] = orc.apply(lambda o: pd.Series(ligar(o)), axis=1)
+    orc = juntar_tipos(orc)   # atividade, regra e servico_estrutura pela tabela fixa por id (não pelo texto)
     info = crono.set_index('atividade')
     orc['descricao_atividade'] = orc.atividade.map(info.descricao)
     orc['ini_crono'] = orc.atividade.map(info.ini); orc['fim_crono'] = orc.atividade.map(info.fim)
@@ -302,7 +243,9 @@ if __name__ == '__main__':
         orc.loc[i, ['semana_inicio_real', 'semana_fim_real']] = [fim_alv + 1, min(fim_alv + d, len(cal))]
         orc.loc[i, ['ini_crono', 'fim_crono']] = [None, None]
         orc.loc[i, 'janelas'] = f'real S{fim_alv + 1}-S{min(fim_alv + d, len(cal))} ({d} sem. depois da alvenaria, fim S{fim_alv})'
-    orc.to_csv(os.path.join(a.saida, 'eap_cronograma.csv'), index=False, encoding='utf-8-sig')
+    # mesmas colunas de antes: os tipos da tabela fixa ficam só na memória
+    orc.drop(columns=['material', 'tipo_material', 'tipo_servico', 'servico_estrutura']).to_csv(
+        os.path.join(a.saida, 'eap_cronograma.csv'), index=False, encoding='utf-8-sig')
 
     # 2) atividades: horas do cronograma × horas e valor das linhas ligadas
     lig = orc[orc.atividade != '']
