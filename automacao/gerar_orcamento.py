@@ -2,13 +2,14 @@
 Gera orcamento.csv a partir de public/dados.json (o orçamento que o dashboard usa)
 mais as linhas de ajustes_orcamento.csv (decisões do Rafael que ainda não estão no
 orçamento oficial; o dados.json não é alterado).
-Uso: py gerar_orcamento.py [../public/dados.json]
+Uso: py gerar_orcamento.py [../backup_seguranca_2026-10-07/dados.json]
+(pedido 13: o dados.json saiu de public/ e do git; o site lê o orçamento do banco pela /api/orcamento)
 Uma linha por código + pavimento: codigo_eap, pavimento, descricao, orcado, grupo, grupo_nome, origem.
 """
 import sys, json, os
 import pandas as pd
 
-src = sys.argv[1] if len(sys.argv) > 1 else '../public/dados.json'
+src = sys.argv[1] if len(sys.argv) > 1 else '../backup_seguranca_2026-10-07/dados.json'
 d = json.load(open(src, encoding='utf-8'))
 o = pd.DataFrame([{'codigo_eap': i['i'], 'pavimento': i['p'], 'descricao': i['d'], 'orcado': round(float(i['c']), 2),
                    'grupo': i['g'], 'grupo_nome': i['n'], 'origem': 'dados.json'} for i in d])

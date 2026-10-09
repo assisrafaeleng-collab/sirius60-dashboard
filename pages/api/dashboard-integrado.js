@@ -2,6 +2,8 @@ import { supabase, supabasePronto } from '../../lib/supabase'
 import { carregarCalendario } from '../../lib/calendario-servidor'
 import { OBRA, GRUPO_MAX_EVM, PREFIXOS_PRE_OBRA, EAP_CUSTO_DE_TEMPO, dataParaSemana, inicioSemana, fimSemana, ehCustoDeTempo } from '../../lib/constants'
 import { calendario, planejadoDoCalendario } from '../../lib/calendario'
+import { carregarMedicoes, carregarVinculos } from '../../lib/medicao-servidor'
+import { ordenarRetratos, percentuaisAte, heranca, chaveLinha } from '../../lib/medicao'
 
 
 // Um lançamento vira semana pela data da nota (dd/mm/aaaa).
@@ -20,18 +22,20 @@ export default async function handler(req, res) {
   const semLimite = Math.min(Math.max(parseInt(req.query.semana) || PRAZO, 1), PRAZO)
 
   try {
-    const [finPlanRes, fisPlanRes, custosRes, horasRes, avancoRes, indPlanRes, dirPlanRes] =
+    const [finPlanRes, fisPlanRes, custosRes, horasRes, medicoes, vinc, indPlanRes, dirPlanRes] =
       await Promise.all([
         supabase.from('v_curva_s_financeira_planejada').select('*').eq('obra_id', obra_id).order('semana_numero'),
         supabase.from('v_curva_s_fisica_planejada').select('*').eq('obra_id', obra_id).order('semana_numero'),
         supabase.from('custos_lancamentos').select('competencia, data_emissao, valor, status, grupo_custo, codigo_eap, pavimento, fornecedor, historico').eq('obra_id', obra_id).order('data_emissao'),
         supabase.from('cronograma_horas_planejado').select('grupo_nome, horas_totais').eq('obra_id', obra_id),
-        supabase.from('avanco_fisico_realizado').select('semana_numero, codigo_eap, pavimento, incremento_pct, medido_por').eq('obra_id', obra_id).lte('semana_numero', semLimite).order('semana_numero'),
+        // medições: retratos acumulados (tabela nova) ou incrementos somados (antes do SQL) — lib/medicao-servidor
+        carregarMedicoes(supabase),
+        carregarVinculos(supabase),
         supabase.from('custos_indiretos_planejados').select('valor_total, recorrente, semana_desembolso, semana_fim').eq('obra_id', obra_id),
-        supabase.from('orcamento_planejado').select('codigo_eap, pavimento, descricao, preco_total, hh, grupo_num, semana_inicio, semana_fim').eq('obra_id', obra_id),
+        supabase.from('orcamento_planejado').select('id, codigo_eap, pavimento, descricao, preco_total, hh, grupo_num, semana_inicio, semana_fim').eq('obra_id', obra_id),
       ])
 
-    for (const r of [finPlanRes, fisPlanRes, custosRes, horasRes, avancoRes, indPlanRes, dirPlanRes]) {
+    for (const r of [finPlanRes, fisPlanRes, custosRes, horasRes, indPlanRes, dirPlanRes]) {
       if (r.error) throw new Error(r.error.message)
     }
 
@@ -44,7 +48,7 @@ export default async function handler(req, res) {
     const fisPlan = novo ? novo.fisPlan : (fisPlanRes.data || [])
     const lancamentos = custosRes.data || []
     const horas = horasRes.data || []
-    const avanco = avancoRes.data || []
+    const retratos = ordenarRetratos(medicoes.retratos).filter(r => r.semana_numero <= semLimite)
     const indiretosPlan = indPlanRes.data || []
     const diretosPlan = dirPlanRes.data || []
 
@@ -103,10 +107,9 @@ export default async function handler(req, res) {
     const ult = finReal.length ? finReal[finReal.length - 1] : null
 
     // ---------- REALIZADO FÍSICO ----------
-    // Cada medição guarda o percentual ACUMULADO de um serviço num pavimento.
-    // O avanço global pondera pelo CUSTO do item — a mesma régua da curva
-    // planejada. Somar percentuais de semanas diferentes daria número errado.
-    const chave = (eap, pav) => `${eap}|${pav}`
+    // Vale o ÚLTIMO percentual acumulado de cada linha (código + pavimento) até a semana; material herda o % do
+    // serviço vinculado (lib/medicao.js). O avanço da obra é por HORAS (CLAUDE.md); o "por custo" fica como dado.
+    const chave = chaveLinha
     const pesos = {}, pesosHH = {}
     let pesoTotal = 0, pesoHHTotal = 0
     diretosPlan.filter(ehProducao).forEach(i => {
@@ -131,16 +134,26 @@ export default async function handler(req, res) {
       return pesoHHTotal > 0 ? 100 * feito / pesoHHTotal : 0
     }
 
-    // por semana: qual o percentual mais recente de cada serviço até ali
-    const semanasMedidas = [...new Set(avanco.map(a => a.semana_numero))].sort((a, b) => a - b)
-    const ultimoPct = {}
+    // por semana: o último percentual de cada linha até ali (material pelo serviço vinculado)
+    const semanasMedidas = [...new Set(retratos.map(a => a.semana_numero))].sort((a, b) => a - b)
+    const materiais = new Set(vinc.vinculos.map(v => v.material_id))
+    let ultimoPct = {}
     const fisReal = []
-    semanasMedidas.forEach(sem => {
-      // lançamentos são incrementais: somam ao que já havia, com teto de 100%
-      avanco.filter(a => a.semana_numero === sem).forEach(a => {
-        const k = chave(a.codigo_eap, a.pavimento)
-        ultimoPct[k] = Math.min((ultimoPct[k] || 0) + parseFloat(a.incremento_pct || 0), 100)
+    const pctNaSemana = sem => {
+      const m = percentuaisAte(retratos, sem)
+      const porId = {}
+      diretosPlan.forEach(i => { const x = m[chave(i.codigo_eap, i.pavimento)]; porId[i.id] = x ? Math.min(x.percentual, 100) : 0 })
+      const her = heranca(vinc.vinculos, porId)
+      const out = {}
+      diretosPlan.filter(ehProducao).forEach(i => {
+        const k = chave(i.codigo_eap, i.pavimento)
+        const p = materiais.has(i.id) ? Math.min(her[i.id] || 0, 100) : (m[k] ? Math.min(m[k].percentual, 100) : null)
+        if (p != null && p > 0) out[k] = p
       })
+      return out
+    }
+    semanasMedidas.forEach(sem => {
+      ultimoPct = pctNaSemana(sem)
       let agregado = 0, agregadoHH = 0
       for (const k in ultimoPct) {
         agregado   += (pesos[k]   || 0) * ultimoPct[k] / 100
@@ -187,7 +200,8 @@ export default async function handler(req, res) {
     const pctPlan = fisPlanRef ? parseFloat(fisPlanRef.percentual_acumulado) : 0
     const pctReal = fisReal.length ? fisReal[fisReal.length - 1].percentual_acumulado : 0
 
-    const pctPlanHH = planHHate(semRef)
+    // planejado por horas: a curva do cronograma (calendário novo); sem ela, o rateio linear antigo
+    const pctPlanHH = novo ? pctPlan : planHHate(semRef)
     const pctRealHH = fisReal.length ? fisReal[fisReal.length - 1].percentual_hh : 0
 
     const bcws = (pctPlan / 100) * baseEVM
@@ -302,7 +316,7 @@ export default async function handler(req, res) {
         financeiro_realizado: (i <= semLimite && fr) ? fr.valor_direto : null,
         fisico_planejado: sp ? parseFloat(sp.percentual_acumulado) : null,
         fisico_realizado: (i <= semLimite && sr) ? sr.percentual_acumulado : null,
-        hh_planejado: +planHHate(i).toFixed(3),
+        hh_planejado: novo && sp ? +parseFloat(sp.percentual_acumulado).toFixed(3) : +planHHate(i).toFixed(3),
         hh_realizado: (i <= semLimite && sr) ? sr.percentual_hh : null,
       })
     }
@@ -360,7 +374,7 @@ export default async function handler(req, res) {
       comparativo,
       metadata: {
         obra_id, prazo_semanas: PRAZO, semana_limite: semLimite,
-        lancamentos: lancamentos.length, medicoes: avanco.length,
+        lancamentos: lancamentos.length, medicoes: retratos.length, modo_medicao: medicoes.modo,
       },
     })
   } catch (e) {

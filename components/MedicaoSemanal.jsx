@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchComSenha } from '../lib/fetch-com-senha'
 import { datasDaSemana } from '../lib/calendario'
 import { OBRA, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
-         inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo } from '../lib/constants'
+         inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo, hojeSaoPaulo } from '../lib/constants'
 
 const AZUL = '#5B9BD5'
 const ROSA = '#E91E8C'
@@ -40,10 +40,16 @@ export default function MedicaoSemanal({ semana, sessao }) {
     return 100 * (semana - i.a + 1) / (i.b - i.a + 1)
   }
 
+  // modo da medição (decidido pelo banco, /api/medicao): 'acumulado' = % acumulado por linha (tabela nova);
+  // 'incremento' = "quanto avançou" (antes do SQL supabase/avanco/1-medicao-acumulada.sql)
+  const acumulado = med?.modo === 'acumulado'
+  const materiais = useMemo(() => new Set(med?.materiais || []), [med])
+
   const lista = useMemo(() => {
     if (!itens || !med) return []
     const q = busca.trim().toLowerCase()
-    return itens.map(i => {
+    // linha de material não recebe medição: segue o serviço vinculado
+    return itens.filter(i => !materiais.has(chave(i.i, i.p))).map(i => {
       const s = med.servicos[chave(i.i, i.p)]
       return { ...i, _acum: s?.acumulado || 0, _lanc: s?.lancamentos || [],
                _plan: planDe(i), _qtd: s?.qtd || 0, _hh: s?.hh || 0 }
@@ -53,7 +59,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
       if (!q) return true
       return (i.d + ' ' + i.i + ' ' + i.n + ' ' + i.p).toLowerCase().includes(q)
     })
-  }, [itens, med, semana, filtro, busca])
+  }, [itens, med, semana, filtro, busca, materiais])
 
   // agrupa os serviços e agrega planejado/executado ponderados por custo
   const blocos = useMemo(() => {
@@ -79,9 +85,12 @@ export default function MedicaoSemanal({ semana, sessao }) {
   function abrir(k, i) {
     if (aberto === k) { setAberto(null); return }
     setAberto(k)
+    // data padrão: hoje (fuso de São Paulo) se cair na semana; senão o último dia da semana
+    const hoje = hojeSaoPaulo()
+    const ds = datasDaSemana(semana)
     setForm({
-      data: datasDaSemana(semana).data_fim,
-      incremento: '', hh: '', qtd: '', observacao: '',
+      data: hoje >= ds.data_inicio && hoje <= ds.data_fim ? hoje : ds.data_fim,
+      incremento: '', percentual: '', hh: '', qtd: '', observacao: '',
     })
   }
 
@@ -95,8 +104,10 @@ export default function MedicaoSemanal({ semana, sessao }) {
       })
       const j = await r.json()
       if (!r.ok) throw new Error(j.error || 'Falha ao gravar')
-      setToast({ tipo: 'ok', txt: `Lançamento de ${form.incremento}% gravado na S${j.semana}.` })
-      setForm({ ...form, incremento: '', hh: '', qtd: '', observacao: '' })
+      setToast({ tipo: 'ok', txt: acumulado
+        ? `Medição de ${form.percentual}% acumulado gravada na S${j.semana}.`
+        : `Lançamento de ${form.incremento}% gravado na S${j.semana}.` })
+      setForm({ ...form, incremento: '', percentual: '', hh: '', qtd: '', observacao: '' })
       carregar()
     } catch (e) { setToast({ tipo: 'err', txt: e.message }) }
   }
@@ -301,7 +312,10 @@ export default function MedicaoSemanal({ semana, sessao }) {
                             <td style={{ fontFamily: 'var(--mono)', fontSize: 11,
                                          color: 'var(--text3)' }}>S{l.semana_numero}</td>
                             <td style={{ fontFamily: 'var(--mono)', color: ROSA }}>
-                              +{parseFloat(l.incremento_pct).toFixed(1)}%
+                              {acumulado
+                                ? <>{parseFloat(l.percentual).toFixed(1)}%{l.transferido_de &&
+                                    <span className="kpi-sub" title="medição feita na linha de material e transferida"> (de {l.transferido_de})</span>}</>
+                                : <>+{parseFloat(l.incremento_pct).toFixed(1)}%</>}
                             </td>
                             <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
                               {l.hh_semana ? l.hh_semana + ' h'
@@ -361,18 +375,35 @@ export default function MedicaoSemanal({ semana, sessao }) {
                           : 'fora do prazo da obra'}
                       </div>
                     </div>
-                    <div className="field">
-                      <label>Quanto avançou (%)</label>
-                      <input type="number" step="0.1" min="-100" max="100"
-                             value={form.incremento || ''}
-                             placeholder="ex.: 15"
-                             onChange={e => setForm({ ...form, incremento: e.target.value })} />
-                      <div className="kpi-sub" style={{ marginTop: 4 }}>
-                        {form.incremento
-                          ? `acumulado ficaria em ${Math.min(i._acum + parseFloat(form.incremento || 0), 100).toFixed(1)}%`
-                          : `hoje em ${i._acum.toFixed(1)}%`}
+                    {acumulado ? (
+                      <div className="field">
+                        <label>Percentual acumulado (%)</label>
+                        <input type="number" step="0.1" min="0" max="100"
+                               value={form.percentual || ''}
+                               placeholder={`hoje ${i._acum.toFixed(1)}`}
+                               onChange={e => setForm({ ...form, percentual: e.target.value })} />
+                        <div className="kpi-sub" style={{ marginTop: 4 }}>
+                          {form.percentual !== '' && form.percentual != null
+                            ? (parseFloat(form.percentual) < i._acum
+                                ? `revisa para baixo: de ${i._acum.toFixed(1)}% para ${parseFloat(form.percentual).toFixed(1)}%`
+                                : `de ${i._acum.toFixed(1)}% para ${parseFloat(form.percentual).toFixed(1)}%`)
+                            : `última medição: ${i._acum.toFixed(1)}%`}
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="field">
+                        <label>Quanto avançou (%)</label>
+                        <input type="number" step="0.1" min="-100" max="100"
+                               value={form.incremento || ''}
+                               placeholder="ex.: 15"
+                               onChange={e => setForm({ ...form, incremento: e.target.value })} />
+                        <div className="kpi-sub" style={{ marginTop: 4 }}>
+                          {form.incremento
+                            ? `acumulado ficaria em ${Math.min(i._acum + parseFloat(form.incremento || 0), 100).toFixed(1)}%`
+                            : `hoje em ${i._acum.toFixed(1)}%`}
+                        </div>
+                      </div>
+                    )}
                     <div className="field">
                       <label>Observação</label>
                       <input type="text" value={form.observacao || ''}
@@ -381,7 +412,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                     </div>
                   </div>
 
-                  <div className="form-grid-2" style={{ marginTop: 12 }}>
+                  {!acumulado && <div className="form-grid-2" style={{ marginTop: 12 }}>
                     <div className="field">
                       <label>Horas gastas no período (opcional)</label>
                       <input type="number" step="0.5" min="0" value={form.hh || ''}
@@ -399,11 +430,11 @@ export default function MedicaoSemanal({ semana, sessao }) {
                           { maximumFractionDigits: 1 })} {i.u}
                       </div>
                     </div>
-                  </div>
+                  </div>}
 
                   <div className="btn-row" style={{ marginTop: 16 }}>
                     <button className="btn-primary" onClick={() => salvar(i)}>
-                      Adicionar lançamento
+                      {acumulado ? 'Gravar medição' : 'Adicionar lançamento'}
                     </button>
                   </div>
                 </div>
@@ -416,10 +447,18 @@ export default function MedicaoSemanal({ semana, sessao }) {
         })}
 
         <div className="notas-box" style={{ marginTop: 16 }}>
-          Cada linha da memória de cálculo é <b>quanto o serviço avançou naquela data</b>,
-          não o total. Se a alvenaria estava em 40% e você fez mais um quarto dela, lance
-          <b> 25</b> — o acumulado vira 65%. Dá para registrar vários avanços na mesma
-          semana e a soma é feita pelo sistema.
+          {acumulado ? (
+            <>Cada medição é o <b>percentual acumulado</b> da linha naquela data: "a alvenaria do 1º Pav está em
+            65%". Vale a última medição de cada linha (código + pavimento); se ela for menor que a anterior, o avanço
+            é revisado para baixo. A semana sai da data, pelo calendário da obra.</>
+          ) : (
+            <>Cada linha da memória de cálculo é <b>quanto o serviço avançou naquela data</b>,
+            não o total. Se a alvenaria estava em 40% e você fez mais um quarto dela, lance
+            <b> 25</b> — o acumulado vira 65%. Dá para registrar vários avanços na mesma
+            semana e a soma é feita pelo sistema.</>
+          )}
+          {' '}As linhas só de material (aço, madeira, concreto usinado, material elétrico e hidráulico) não
+          aparecem: seguem o avanço do serviço a que estão vinculadas.
           <br /><br />
           A barra mostra o planejado em azul claro atrás e o executado na frente; ela fica
           âmbar quando o serviço cai mais de 5 pontos abaixo do previsto. Horas e

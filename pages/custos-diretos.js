@@ -2,414 +2,270 @@ import Head from 'next/head'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useEffect, useMemo, useState } from 'react'
-import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel,
-         inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
+import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
 
-// Planejado é referência: fica em cinza. Realizado é o número que se procura:
-// fica claro. Cor só entra onde há desvio relevante — ver corDesvio abaixo.
-const PLAN = '#6e8ba8'   // azul lavado: valor de referencia, canal proprio
-const REAL = '#f2f4f7'   // medido em campo: o numero que se procura
+// Custos diretos (pedido 13; CLAUDE.md 08/10): o custo comprometido (pago + a pagar) é comparado com o VALOR
+// AGREGADO da linha (% de avanço × orçado; material pela regra do material; locação = gasto limitado à verba;
+// custo de tempo pela obra decorrida), NÃO com o planejado do cronograma. O planejado fica só como "ritmo de gasto
+// vs cronograma". Números da /api/painel (lib/valor-agregado.js).
+const nf = (v, d = 0) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d })
+const REGRA = {
+  servico: 'medição', material: 'regra do material', locacao: 'gasto até a verba', tempo: 'obra decorrida',
+}
 
-// O realizado ganha fundo sutil para nao se confundir com o saldo,
-// que tambem e claro e fica ao lado nos cards do topo.
-const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px',
-               borderRadius: 6, fontWeight: 500 }
-
-// Zona morta: desvio pequeno é ruído de medição, não ganha cor.
-const LIM_NEUTRO = 15   // abaixo disso, cinza
-const LIM_ALERTA = 30   // acima disso, estouro
+function soma(ls) {
+  const t = { orcado: 0, agregado: 0, pago: 0, a_pagar: 0, comprometido: 0, plan_valor: 0 }
+  ls.forEach(l => Object.keys(t).forEach(k => { t[k] += Number(l[k]) || 0 }))
+  t.desvio = t.agregado - t.comprometido
+  t.desvio_pct = t.agregado > 0 ? 100 * t.desvio / t.agregado : (t.comprometido > 0 ? -100 : null)
+  t.perc_orcado = t.orcado > 0 ? 100 * t.comprometido / t.orcado : null
+  t.saldo_verba = t.orcado - t.comprometido
+  return t
+}
 
 export default function CustosDiretos() {
   const router = useRouter()
-  const [visao, setVisao] = useState('vs')   // 'vs' = planejado x realizado | 'plan'
-  const [itens, setItens] = useState(null)
-  const [api, setApi] = useState(null)
-  const [busca, setBusca] = useState('')
   const [semana, setSemana] = useState(semanaAtualObra())
-  const [pav, setPav] = useState('')
-  const [agrupar, setAgrupar] = useState('grupo')
-  const [modo, setModo] = useState('ate')      // 'ate' = acumulado | 'na' = só a semana
-  const [metrica, setMetrica] = useState('R$')
+  const [p, setP] = useState(null)
+  const [erro, setErro] = useState(null)
+  const [busca, setBusca] = useState('')
   const [aberto, setAberto] = useState({})
 
-  useEffect(() => {
-    // orçamento do banco (fonte única; antes vinha de public/dados.json)
-    fetch('/api/orcamento').then(r => r.json())
-      .then(d => setItens((Array.isArray(d) ? d : []).filter(i => i.g <= 18)))
-  }, [])
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())
   }, [router.query.semana])
   useEffect(() => {
-    setApi(null)
-    fetch(`/api/dashboard-integrado?semana=${semana}`).then(r => r.json())
-      .then(j => !j.error && setApi(j)).catch(() => {})
+    setP(null); setErro(null)
+    fetch(`/api/painel?semana=${semana}`).then(r => r.json())
+      .then(j => (j.error ? setErro(j.message || j.error) : setP(j))).catch(e => setErro(e.message))
   }, [semana])
 
-  const pavimentos = useMemo(
-    () => itens ? [...new Set(itens.map(i => i.p))].sort() : [], [itens])
-
-  // Parcela de um item que cabe no recorte escolhido.
-  // 'ate'  -> acumulado proporcional até a semana (item de 10 semanas na 3ª vale 30%)
-  // 'na'   -> só a parcela daquela semana
-  function fator(i) {
-    if (!semana) return 1
-    const dur = i.b - i.a + 1
-    if (modo === 'na') return (semana >= i.a && semana <= i.b) ? 1 / dur : 0
-    if (semana >= i.b) return 1
-    if (semana < i.a) return 0
-    return (semana - i.a + 1) / dur
-  }
-
-  const realPorEap = useMemo(() => {
-    const m = {}
-    ;(api?.comparativo || []).forEach(c => { m[c.codigo_eap] = c.realizado })
-    return m
-  }, [api])
-
-  const filtrados = useMemo(() => {
-    if (!itens) return []
+  const arvore = useMemo(() => {
+    if (!p) return []
     const q = busca.trim().toLowerCase()
-    // o lançamento aponta para a EAP; rateamos entre as linhas dela pelo custo
-    const totalEap = {}
-    itens.forEach(i => { totalEap[i.i] = (totalEap[i.i] || 0) + i.c })
-    return itens.map(i => {
-      const f = fator(i)
-      const parte = totalEap[i.i] > 0 ? i.c / totalEap[i.i] : 0
-      return { ...i, c: i.c * f, h: i.h * f, _f: f, _real: (realPorEap[i.i] || 0) * parte }
-    }).filter(i => {
-      if (i.c <= 0 && i._real <= 0) return false
-      if (pav && i.p !== pav) return false
-      if (!q) return true
-      return (i.d + ' ' + i.i + ' ' + i.n).toLowerCase().includes(q)
+    const grupos = {}
+    p.linhas.forEach(l => {
+      const g = (grupos[l.grupo_num] = grupos[l.grupo_num] || { num: l.grupo_num, nome: l.grupo_nome, todas: [], pavs: {} })
+      g.todas.push(l)
+      const pv = (g.pavs[l.pavimento] = g.pavs[l.pavimento] || { nome: l.pavimento, todas: [], visiveis: [], ocultas: 0 })
+      pv.todas.push(l)
+      if (l.orcado === 0 && l.comprometido === 0) { pv.ocultas++; return }   // escondida, mas somada
+      if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + l.pavimento).toLowerCase().includes(q)) return
+      pv.visiveis.push(l)
     })
-  }, [itens, busca, semana, pav, modo, realPorEap])
+    return Object.values(grupos).sort((a, b) => a.num - b.num).map(g => ({
+      ...g, t: soma(g.todas),
+      pavs: Object.values(g.pavs).map(pv => ({ ...pv, t: soma(pv.todas) })).filter(pv => pv.visiveis.length),
+    })).filter(g => g.pavs.length)
+  }, [p, busca])
 
-  const totalGeral = itens ? itens.reduce((s, i) => s + i.c, 0) : 0
-  const totalFiltrado = filtrados.reduce((s, i) => s + i.c, 0)
-  const realTotal = filtrados.reduce((s, i) => s + i._real, 0)
-  const hhFiltrado = filtrados.reduce((s, i) => s + i.h, 0)
-  const desvioTotal = totalFiltrado > 0
-    ? 100 * (realTotal - totalFiltrado) / totalFiltrado : null
-
-  const desvioDe = (plan, real) => plan > 0 ? 100 * (real - plan) / plan
-                                            : (real > 0 ? 100 : null)
-
-  // Cinza é o estado normal. Só sai do cinza quem passou dos limites acima.
-  const corDesvio = dv => dv == null ? 'var(--text3)'
-    : dv >= LIM_ALERTA ? 'var(--red-tx)'
-    : dv >= LIM_NEUTRO ? 'var(--amber-tx)'
-    : dv <= -LIM_NEUTRO ? 'var(--green-tx)'
-    : 'var(--text3)'
-
-  // A barra não repete a cor do desvio: ela só acende quando há estouro.
-  const corBarra = dv => dv == null ? 'var(--text3)'
-    : dv >= LIM_ALERTA ? 'var(--red)'
-    : dv >= LIM_NEUTRO ? 'var(--amber)'
-    : 'var(--text3)'
-
-  // Segundo canal de leitura: sobrevive à impressão em preto e branco.
-  const seta = dv => dv > 0 ? '▲ ' : dv < 0 ? '▼ ' : ''
-  const txtDesvio = (dv, casas) => dv == null ? '—'
-    : seta(dv) + fmtPct(Math.abs(dv), casas)
-
-  const saldo = totalFiltrado - realTotal
-  const vs = visao === 'vs'
-
-  const blocos = useMemo(() => {
-    const m = {}
-    filtrados.forEach(i => {
-      const k = agrupar === 'grupo' ? i.n : i.p
-      if (!m[k]) m[k] = { chave: k, num: agrupar === 'grupo' ? i.g : null,
-                          custo: 0, real: 0, hh: 0, itens: [] }
-      m[k].custo += i.c; m[k].real += i._real; m[k].hh += i.h; m[k].itens.push(i)
-    })
-    return Object.values(m).sort((a, b) => (b.custo + b.real) - (a.custo + a.real))
-  }, [filtrados, agrupar])
-
-  const valorMetrica = (custo, hh) =>
-    metrica === 'R$' ? fmtMoeda(custo)
-    : metrica === 'Hh' ? Math.round(hh).toLocaleString('pt-BR') + ' h'
-    : fmtPct(totalFiltrado > 0 ? 100 * custo / totalFiltrado : 0)
-
+  const abrirTodos = (on) => {
+    const o = {}
+    if (on) arvore.forEach(g => { o['g' + g.num] = true; g.pavs.forEach(pv => { o['g' + g.num + '|' + pv.nome] = true }) })
+    setAberto(o)
+  }
+  const corDesvio = (v) => v == null ? 'var(--text3)' : v >= 0 ? 'var(--green-tx)' : 'var(--red-tx)'
+  const txtDesvio = (v, pct) => v == null ? '—'
+    : (v >= 0 ? '▼ economia ' : '▲ estouro ') + fmtMoedaK(Math.abs(v)) + (pct != null ? ` (${nf(Math.abs(pct), 0)}%)` : '')
   const fmtBR = d => d.toLocaleDateString('pt-BR')
 
-  // Estado selecionado dos filtros: contraste, não cor. O âmbar fica
-  // reservado para "atenção" nos dados.
-  const selecionado = { background: 'var(--text)', color: 'var(--bg)',
-                        borderColor: 'var(--text)' }
+  const Valores = ({ t, forte }) => (
+    <>
+      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--text2)' }}>{fmtMoedaK(t.orcado)}</td>
+      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: forte ? 600 : 400 }}>{fmtMoedaK(t.agregado)}</td>
+      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: forte ? 600 : 400 }}>
+        {t.comprometido > 0 ? fmtMoedaK(t.comprometido) : <span style={{ color: 'var(--text3)' }}>—</span>}
+        {t.a_pagar > 0 && (
+          <div className="kpi-sub">{fmtMoedaK(t.pago)} pago + {fmtMoedaK(t.a_pagar)} a pagar</div>
+        )}
+      </td>
+      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11,
+                   color: t.perc_orcado > 100 ? 'var(--red-tx)' : 'var(--text2)' }}>
+        {t.perc_orcado == null ? '—' : fmtPct(t.perc_orcado, 0)}
+      </td>
+      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: corDesvio(t.comprometido || t.agregado ? t.desvio : null) }}>
+        {t.comprometido || t.agregado ? txtDesvio(t.desvio, t.desvio_pct) : '—'}
+      </td>
+      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11,
+                   color: t.saldo_verba < 0 ? 'var(--red-tx)' : 'var(--text2)' }}>{fmtMoedaK(t.saldo_verba)}</td>
+    </>
+  )
+  const Cabecalho = () => (
+    <thead>
+      <tr>
+        <th style={{ width: 64 }}>EAP</th>
+        <th>Linha</th>
+        <th style={{ width: 92, textAlign: 'right' }}>Orçado</th>
+        <th style={{ width: 96, textAlign: 'right' }}>Valor agregado</th>
+        <th style={{ width: 132, textAlign: 'right' }}>Custo (pago + a pagar)</th>
+        <th style={{ width: 70, textAlign: 'right' }}>% do orçado</th>
+        <th style={{ width: 150, textAlign: 'right' }}>Estouro / economia</th>
+        <th style={{ width: 92, textAlign: 'right' }}>Saldo da verba</th>
+      </tr>
+    </thead>
+  )
+
+  const t = p?.totais
+  const saldo = t ? t.agregado - t.comprometido : 0
 
   return (
     <>
-      <Head><title>{'Custos diretos planejados - ' + OBRA.nome}</title></Head>
+      <Head><title>{'Custos diretos - ' + OBRA.nome}</title></Head>
       <div className="page">
         <header className="header">
-          <div className="obra-eye">
-            Custos diretos — {vs ? 'planejado vs realizado' : 'planejado'}
-          </div>
+          <div className="obra-eye">Custos diretos — custo comprometido vs valor agregado</div>
           <h1 className="obra-nome">{OBRA.nome}</h1>
-          <div className="obra-info">
-            {OBRA.prazo_semanas} semanas · {fmtBR(inicioSemana(1))} a{' '}
-            {fmtBR(fimSemana(OBRA.prazo_semanas))}
-          </div>
+          <div className="obra-info">S{semana} · {fmtBR(inicioSemana(semana))} a {fmtBR(fimSemana(semana))}</div>
           <div className="btn-row" style={{ marginTop: 16 }}>
-            <Link href="/" className="btn-secondary"
-                  style={{ textDecoration: 'none', display: 'inline-block' }}>
-              ← Dashboard
-            </Link>
-            <button className="btn-secondary" onClick={() => setVisao(vs ? 'plan' : 'vs')}>
-              {vs ? 'Ver só o planejado' : 'Comparar com o realizado'}
-            </button>
+            <Link href="/" className="btn-secondary" style={{ textDecoration: 'none', display: 'inline-block' }}>← Dashboard</Link>
           </div>
         </header>
 
         <div style={{ marginTop: 22 }}>
-          {vs ? (
-            <div className="kpi-grid">
-              <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
-                <div className="kpi-label">Planejado até S{semana}</div>
-                <div className="kpi-value" style={{ color: PLAN }}>{fmtMoeda(totalFiltrado)}</div>
-                <div className="kpi-sub">
-                  {blocos.length} grupos · {filtrados.length} itens ativos
+          {erro ? <div className="card">Não foi possível carregar: {erro}</div>
+            : !p ? <div className="loading">Carregando custos diretos…</div> : (
+            <>
+              <div className="kpi-grid">
+                <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
+                  <div className="kpi-label">Valor agregado até S{semana}</div>
+                  <div className="kpi-value">{fmtMoeda(t.agregado)}</div>
+                  <div className="kpi-sub">de {fmtMoedaK(t.orcado)} orçados ({fmtPct(100 * t.agregado / t.orcado)})</div>
                 </div>
-              </div>
-              <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
-                <div className="kpi-label">Realizado até S{semana}</div>
-                <div className="kpi-value">
-                  <span style={{ ...PILL, color: REAL }}>{fmtMoeda(realTotal)}</span>
-                </div>
-                <div className="kpi-sub">
-                  {api ? `${api.metadata.lancamentos} lançamentos na obra` : 'carregando…'}
-                </div>
-              </div>
-              <div className="kpi" style={{
-                borderLeft: `3px solid ${saldo >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
-                <div className="kpi-label">Saldo</div>
-                <div className="kpi-value" style={{
-                  color: saldo >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
-                  {fmtMoeda(saldo)}
-                </div>
-                <div className="kpi-sub" style={{ color: saldo >= 0 ? 'var(--green-tx)' : 'var(--red-tx)' }}>
-                  {saldo >= 0 ? 'Economia sobre o planejado'
-                              : 'Estouro sobre o planejado'}
-                </div>
-              </div>
-              <div className="kpi" style={{ borderLeft: `3px solid ${corDesvio(desvioTotal)}` }}>
-                <div className="kpi-label">Desvio financeiro</div>
-                <div className="kpi-value" style={{ color: corDesvio(desvioTotal) }}>
-                  {txtDesvio(desvioTotal)}
-                </div>
-                <div className="kpi-sub">
-                  {desvioTotal == null ? 'sem base de comparação'
-                    : desvioTotal >= LIM_ALERTA ? 'Acima do orçamento'
-                    : desvioTotal >= LIM_NEUTRO ? 'Levemente acima'
-                    : desvioTotal <= -LIM_NEUTRO ? 'Economia sobre o planejado'
-                    : 'Em linha com o planejado'}
-                </div>
-              </div>
-            </div>
-          ) : (
-          <div className="hero" style={{ borderLeft: '3px solid var(--accent)' }}>
-            <div className="hero-block">
-              <div className="hero-label">
-                {!semana ? 'Total custo direto'
-                  : modo === 'ate' ? `Custo direto previsto até a S${semana}`
-                  : `Custo direto previsto na S${semana}`}
-              </div>
-              <div className="hero-total">
-                <div className="hero-num" style={{ fontSize: 34 }}>{fmtMoeda(totalFiltrado)}</div>
-              </div>
-              <div className="kpi-sub" style={{ marginTop: 8 }}>
-                {blocos.length} {agrupar === 'grupo' ? 'macrogrupos' : 'pavimentos'} ·{' '}
-                {filtrados.length} itens ·{' '}
-                {Math.round(hhFiltrado).toLocaleString('pt-BR')} Hh
-                {semana ? ` · ${fmtPct(100 * totalFiltrado / totalGeral)} do orçamento direto` : ''}
-              </div>
-            </div>
-          </div>
-          )}
-
-          <div className="form-section">
-            <div className="form-grid-3">
-              <div className="field">
-                <label>Buscar</label>
-                <input type="text" value={busca} onChange={e => setBusca(e.target.value)}
-                       placeholder="macrogrupo, item ou código" />
-              </div>
-              <div className="field">
-                <label>Período</label>
-                <select className="styled" value={semana} onChange={e => setSemana(+e.target.value)}>
-                  <option value={0}>Todas ({OBRA.prazo_semanas} semanas)</option>
-                  {semanasPorMes().map(g => (
-                    <optgroup key={g.mes} label={g.mes}>
-                      {g.semanas.map(s => <option key={s} value={s}>{semanaLabel(s)}</option>)}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label>Pavimento</label>
-                <select className="styled" value={pav} onChange={e => setPav(e.target.value)}>
-                  <option value="">Todos</option>
-                  {pavimentos.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            </div>
-            {semana > 0 && (
-              <div className="field" style={{ marginTop: 14 }}>
-                <label>Recorte</label>
-                <div className="btn-row">
-                  {[['ate', `Acumulado até S${semana}`], ['na', `Só a S${semana}`]].map(([v, l]) => (
-                    <button key={v} className="btn-sm" onClick={() => setModo(v)}
-                      style={modo === v ? selecionado : null}>{l}</button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="form-grid-2" style={{ marginTop: 14 }}>
-              <div className="field">
-                <label>Agrupar por</label>
-                <div className="btn-row">
-                  {[['grupo', 'Macrogrupo'], ['pav', 'Pavimento']].map(([v, l]) => (
-                    <button key={v} className="btn-sm" onClick={() => setAgrupar(v)}
-                      style={agrupar === v ? selecionado : null}>{l}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="field">
-                <label>Métrica</label>
-                <div className="btn-row">
-                  {['%', 'R$', 'Hh'].map(v => (
-                    <button key={v} className="btn-sm" onClick={() => setMetrica(v)}
-                      style={metrica === v ? selecionado : null}>{v}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {!itens ? <div className="loading">Carregando orçamento…</div>
-            : !blocos.length ? (
-              <div className="empty-state">
-                <h3>Nenhum item com esses filtros</h3>
-                <p>{semana ? `O cronograma não prevê serviços na S${semana}.` : 'Ajuste a busca.'}</p>
-              </div>
-            ) : blocos.map(b => {
-              const pctTotal = totalFiltrado > 0 ? 100 * b.custo / totalFiltrado : 0
-              const dvBloco = desvioDe(b.custo, b.real)
-              const on = aberto[b.chave]
-              return (
-                <div className="card" key={b.chave} style={{ padding: 0, overflow: 'hidden' }}>
-                  <div onClick={() => setAberto({ ...aberto, [b.chave]: !on })}
-                       style={{ display: 'flex', alignItems: 'center', gap: 16,
-                                padding: '18px 22px', cursor: 'pointer' }}>
-                    {b.num != null && (
-                      <div style={{ width: 34, height: 34, borderRadius: 9, flexShrink: 0,
-                                    background: 'var(--bg3)', display: 'flex',
-                                    alignItems: 'center', justifyContent: 'center',
-                                    font: '600 13px var(--mono)', color: 'var(--text2)' }}>
-                        {b.num}
-                      </div>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ font: '600 14px "IBM Plex Sans"' }}>{b.chave}</div>
-                      <div className="kpi-sub">
-                        {b.itens.length} itens ·{' '}
-                        {Math.round(b.hh).toLocaleString('pt-BR')} Hh
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', minWidth: 96 }}>
-                      <div style={{ font: '600 14px var(--mono)', color: vs ? PLAN : 'var(--accent)' }}>
-                        {valorMetrica(b.custo, b.hh)}
-                      </div>
-                      <div className="kpi-sub">{vs ? 'planejado' : fmtPct(pctTotal, 2) + ' do total'}</div>
-                    </div>
-                    {vs && (
-                      <>
-                        <div style={{ textAlign: 'right', minWidth: 96 }}>
-                          <div style={{ font: '600 14px var(--mono)', color: REAL }}>
-                            {b.real > 0 ? <span style={PILL}>{fmtMoedaK(b.real)}</span>
-                              : <span style={{ color: 'var(--text3)' }}>—</span>}
-                          </div>
-                          <div className="kpi-sub">realizado</div>
-                        </div>
-                        <div style={{ textAlign: 'right', minWidth: 60,
-                                      font: '600 13px var(--mono)',
-                                      color: corDesvio(dvBloco) }}>
-                          {txtDesvio(dvBloco)}
-                        </div>
-                      </>
-                    )}
-                    <div className="prog-track" style={{ maxWidth: vs ? 88 : 120, height: 6 }}>
-                      <div className="prog-fill" style={{
-                        width: (vs ? (b.custo > 0 ? Math.min(100 * b.real / b.custo, 100) : 0)
-                                   : pctTotal) + '%',
-                        background: vs ? corBarra(dvBloco) : 'var(--accent)' }} />
-                    </div>
-                    <span style={{ color: 'var(--text3)', fontSize: 11 }}>{on ? '▲' : '▼'}</span>
+                <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
+                  <div className="kpi-label">Custo comprometido</div>
+                  <div className="kpi-value">{fmtMoeda(t.comprometido)}</div>
+                  <div className="kpi-sub">
+                    {fmtMoedaK(t.pago)} pago + {fmtMoedaK(t.a_pagar)} a pagar
+                    {p.contas.fechamento ? ` (fechamento ${p.contas.fechamento})` : ''}
                   </div>
-
-                  {on && (
-                    <div style={{ borderTop: '1px solid var(--border)', padding: '4px 22px 16px' }}>
-                      <table>
-                        <tbody>
-                          {b.itens.sort((a, c) => c.c - a.c).map((i, n) => (
-                            <tr key={i.i + i.p + n}>
-                              <td style={{ width: 66, fontFamily: 'var(--mono)', fontSize: 11,
-                                           color: 'var(--text3)' }}>{i.i}</td>
-                              <td>{i.d}</td>
-                              <td style={{ width: 96 }}>
-                                <span className="badge badge-gray">
-                                  {agrupar === 'grupo' ? i.p : i.n}
-                                </span>
-                              </td>
-                              <td style={{ width: 86, fontFamily: 'var(--mono)', fontSize: 11,
-                                           color: 'var(--text3)' }}>
-                                S{i.a}–S{i.b}
-                                {i._f != null && i._f < 1 && (
-                                  <span style={{ color: 'var(--text3)' }}>
-                                    {' '}{Math.round(i._f * 100)}%
-                                  </span>
-                                )}
-                              </td>
-                              <td style={{ width: 96, textAlign: 'right',
-                                           fontFamily: 'var(--mono)',
-                                           color: vs ? PLAN : 'var(--text)' }}>
-                                {valorMetrica(i.c, i.h)}
-                              </td>
-                              {vs && (
-                                <>
-                                  <td style={{ width: 96, textAlign: 'right',
-                                               fontFamily: 'var(--mono)', color: REAL }}>
-                                    {i._real > 0 ? <span style={PILL}>{fmtMoedaK(i._real)}</span>
-                                      : <span style={{ color: 'var(--text3)' }}>—</span>}
-                                  </td>
-                                  <td style={{ width: 60, textAlign: 'right', fontSize: 11,
-                                               fontFamily: 'var(--mono)',
-                                               color: corDesvio(desvioDe(i.c, i._real)) }}>
-                                    {txtDesvio(desvioDe(i.c, i._real), 0)}
-                                  </td>
-                                </>
-                              )}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
                 </div>
-              )
-            })}
+                <div className="kpi" style={{ borderLeft: `3px solid ${saldo >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
+                  <div className="kpi-label">Saldo (agregado − comprometido)</div>
+                  <div className="kpi-value" style={{ color: corDesvio(saldo) }}>{fmtMoeda(saldo)}</div>
+                  <div className="kpi-sub" style={{ color: corDesvio(saldo) }}>{saldo >= 0 ? 'Economia' : 'Estouro'}</div>
+                </div>
+                <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
+                  <div className="kpi-label">Ritmo de gasto vs cronograma</div>
+                  <div className="kpi-value" style={{ fontSize: 18, color: 'var(--text2)' }}>{fmtMoeda(t.plan_valor)}</div>
+                  <div className="kpi-sub">planejado até S{semana} (só referência; não é a comparação do custo)</div>
+                </div>
+              </div>
 
-          {vs && (
-            <div className="notas-box" style={{ marginTop: 16 }}>
-              O <b>planejado</b> é a parcela do orçamento que o cronograma reserva até a
-              S{semana}. O <b>realizado</b> vem das notas lançadas, rateado entre os
-              pavimentos de cada EAP na proporção do orçamento. Desvio negativo significa
-              gastar menos do que o previsto até aqui — o que pode ser economia ou serviço
-              atrasado, e é a medição física que distingue os dois casos. Desvios de até{' '}
-              {LIM_NEUTRO}% aparecem em cinza por serem ruído de medição.
-            </div>
+              <div className="form-section">
+                <div className="form-grid-2">
+                  <div className="field">
+                    <label>Período</label>
+                    <select className="styled" value={semana} onChange={e => setSemana(+e.target.value)}>
+                      {semanasPorMes().map(g => (
+                        <optgroup key={g.mes} label={g.mes}>
+                          {g.semanas.map(s => <option key={s} value={s}>{semanaLabel(s)}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Buscar</label>
+                    <input type="text" value={busca} onChange={e => setBusca(e.target.value)} placeholder="grupo, linha, código ou pavimento" />
+                  </div>
+                </div>
+                <div className="btn-row" style={{ marginTop: 12 }}>
+                  <button className="btn-sm" onClick={() => abrirTodos(true)}>Abrir todos</button>
+                  <button className="btn-sm" onClick={() => abrirTodos(false)}>Recolher todos</button>
+                </div>
+              </div>
+
+              {arvore.map(g => {
+                const kg = 'g' + g.num
+                const onG = !!aberto[kg]
+                return (
+                  <div className="card" key={kg} style={{ padding: 0, overflow: 'hidden' }}>
+                    <div onClick={() => setAberto({ ...aberto, [kg]: !onG })} style={{ cursor: 'pointer', padding: '14px 22px' }}>
+                      <table><tbody><tr>
+                        <td style={{ width: 64 }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--bg3)', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center', font: '600 13px var(--mono)', color: 'var(--text2)' }}>{g.num}</div>
+                        </td>
+                        <td><div style={{ font: '600 14px "IBM Plex Sans"' }}>{g.nome} <span style={{ color: 'var(--text3)', fontSize: 11 }}>{onG ? '▲' : '▼'}</span></div>
+                          <div className="kpi-sub">ritmo do cronograma até S{semana}: {fmtMoedaK(g.t.plan_valor)}</div></td>
+                        <Valores t={g.t} forte />
+                      </tr></tbody></table>
+                    </div>
+                    {onG && g.pavs.map(pv => {
+                      const kp = kg + '|' + pv.nome
+                      const onP = !!aberto[kp]
+                      return (
+                        <div key={kp} style={{ borderTop: '1px solid var(--border)' }}>
+                          <div onClick={() => setAberto({ ...aberto, [kp]: !onP })}
+                               style={{ cursor: 'pointer', padding: '8px 22px', background: 'var(--bg3)' }}>
+                            <table><tbody><tr>
+                              <td style={{ width: 64 }} />
+                              <td><span style={{ font: '600 12px "IBM Plex Sans"' }}>{pv.nome}</span>{' '}
+                                <span style={{ color: 'var(--text3)', fontSize: 11 }}>{onP ? '▲' : '▼'}</span>
+                                <div className="kpi-sub">{pv.visiveis.length} linha{pv.visiveis.length === 1 ? '' : 's'}
+                                  {pv.ocultas ? ` · ${pv.ocultas} sem orçado nem custo (somadas, escondidas)` : ''}</div></td>
+                              <Valores t={pv.t} />
+                            </tr></tbody></table>
+                          </div>
+                          {onP && (
+                            <div style={{ padding: '4px 22px 12px' }}>
+                              <table>
+                                <Cabecalho />
+                                <tbody>
+                                  {pv.visiveis.map(l => (
+                                    <tr key={l.id}>
+                                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{l.codigo_eap}</td>
+                                      <td>
+                                        {l.descricao}
+                                        <div className="kpi-sub">
+                                          {REGRA[l.tipo]}
+                                          {l.tipo === 'servico' && ` · ${l.medido ? fmtPct(l.perc_real, 0) + ' executado' : 'sem medição'}`}
+                                          {l.tipo === 'material' && ` · segue ${(l.herda_de || []).map(h => h.codigo_eap).join(' + ')} (${fmtPct(l.perc_real, 0)})`
+                                            + (l.material_comprado ? ' · comprado antes da execução (neutro)' : '')}
+                                          {l.tipo === 'locacao' && ` · neutro · ${fmtPct(l.perc_verba || 0, 0)} da verba`}
+                                          {l.tipo === 'tempo' && ` · ${fmtPct(l.perc_real, 0)} da obra decorrida`}
+                                          {` · ritmo do cronograma ${fmtMoedaK(l.plan_valor)}`}
+                                        </div>
+                                      </td>
+                                      <Valores t={l} />
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+
+              {p.fora_orcamento.length > 0 && (
+                <div className="card">
+                  <div className="card-title">Custos com EAP fora do orçamento</div>
+                  <table><tbody>
+                    {p.fora_orcamento.map(f => (
+                      <tr key={f.codigo_eap}><td style={{ fontFamily: 'var(--mono)' }}>{f.codigo_eap}</td>
+                        <td style={{ textAlign: 'right' }}>{fmtMoeda(f.pago)} pago</td>
+                        <td style={{ textAlign: 'right' }}>{fmtMoeda(f.a_pagar)} a pagar</td></tr>
+                    ))}
+                  </tbody></table>
+                </div>
+              )}
+
+              <div className="notas-box" style={{ marginTop: 16 }}>
+                <b>Valor agregado</b> é quanto do orçado já foi "ganho" pela execução: % de avanço da linha × orçado.
+                Material segue o serviço vinculado e vale o maior entre esse avanço e o custo comprometido limitado ao
+                orçado (material comprado antes da execução fica neutro). Locação (grupo 17) vale o gasto até a verba
+                (neutro). Limpeza/EPI (1.1.6) e mão de obra direta (grupo 18) seguem o tempo decorrido da obra.
+                <br /><br />
+                <b>Custo</b> = pago até o fim da S{semana} + a pagar do último fechamento
+                {p.contas.fechamento ? ` (${p.contas.fechamento})` : ''} (só direto e não recorrente). O pagamento sem
+                pavimento é rateado entre as linhas da EAP pelo orçado. <b>Estouro/economia</b> = valor agregado −
+                custo (▼ economia, ▲ estouro). <b>Saldo da verba</b> = orçado − custo. O planejado do cronograma aparece
+                só como ritmo de gasto. Linhas sem orçado e sem custo ficam escondidas, mas somadas.
+              </div>
+            </>
           )}
         </div>
       </div>
