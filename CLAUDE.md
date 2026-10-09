@@ -98,6 +98,9 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   VALOR AGREGADO (% de avanço físico da linha × valor orçado da linha; material pela regra do material), e NÃO com o
   planejado do cronograma. O planejado fica só como informação secundária ("ritmo de gasto vs cronograma").
   Colunas: Orçado | Valor agregado | Custo (pago e a pagar) | % do orçado | Estouro/economia | Saldo da verba.
+- Grupo 18 (Mão de Obra Direta, R$ 428.131,20) (Rafael, 08/10): verba para mão de obra PRÓPRIA, que a princípio
+  não vai ser contratada (a mão de obra real está nos serviços do grupo 2 em diante). Por enquanto FICA como está
+  (valor agregado = verba linear, mesmo gerando "economia" sem custo); pode ser retirada depois.
 - Indiretos (Rafael, 08/10): recorrentes (engenheiro, contabilidade, IPTU, despesas bancárias…) diluídos linearmente
   pela obra toda; pontuais (terreno, ITBI, projetos, registro, taxas) no mês previsto, convertendo a semana antiga
   para a nova pela data.

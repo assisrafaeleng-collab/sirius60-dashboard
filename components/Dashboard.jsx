@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel , ehCustoDeTempo } from '../lib/constants'
+import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, fmtMoeda2, fmtP1, CORES_VA, semanaLabel , ehCustoDeTempo } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
 import MapaPavimentos from './MapaPavimentos'
 import FisicoPorAtividade from './FisicoPorAtividade'
 import DiarioOcorrencias from './DiarioOcorrencias'
+import CustoPorGrupo from './CustoPorGrupo'
 
 export default function Dashboard({ semana, sessao }) {
   const [d, setD] = useState(null)
@@ -128,14 +129,14 @@ function HeroCusto({ k }) {
      % desvio indireto = saldo ÷ planejado; saldo total = direto + indireto, % sobre (valor agregado + indireto
      planejado); adiantamento = semana (interpolada pelas datas) em que a curva planejada atinge o realizado da
      última medição − semana da medição; término projetado = fim do cronograma − esses dias. */
-const fmt2 = v => v == null || isNaN(v) ? '—'
-  : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)
-const pc1 = v => v == null || isNaN(v) ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%'
+// formato e cores do Flats (lib/constants.js: fmtMoeda2, fmtP1, CORES_VA)
+const fmt2 = fmtMoeda2
+const pc1 = fmtP1
 const sinal = v => (v >= 0 ? '+' : '') + pc1(v)
 const S2 = n => 'S' + String(n).padStart(2, '0')
 const dmy = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—'
-const VERDE = 'var(--green-tx)', VERMELHO = 'var(--red-tx)'
-const PLAN = '#6e8ba8', REAL = '#f2f4f7'
+const VERDE = CORES_VA.economia, VERMELHO = CORES_VA.estouro
+const PLAN = CORES_VA.agregado, REAL = '#f2f4f7'
 const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px', borderRadius: 6 }
 
 // Adiantamento (Flats): curva = semanas_alinhadas (hh_planejado = curva do cronograma, hh_realizado = medições)
@@ -169,6 +170,7 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
   const router = useRouter()
   const [abrirAPagar, setAbrirAPagar] = useState(false)
   const [abrirProjecao, setAbrirProjecao] = useState(false)
+  const [abrirGrupos, setAbrirGrupos] = useState(false)   // quadro "custo direto por grupo" (pedido 13C)
   useEffect(() => { setAbrirAPagar(false) }, [semana])
 
   const ok = painel && !painel.erro
@@ -218,7 +220,8 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
   const c1 = { l: 'Valor agregado ↗', c: PLAN, v: fmt2(agregado), link: `/custos-diretos?semana=${semana}`,
     s: carregando || `Executado até ${sRef} · medição de ${sMed}`,
     title: 'Serviço executado a preço de orçamento (percentual × custo da linha; material pela regra do material).' }
-  const c2 = { l: 'Custo direto realizado ↗', c: REAL, pill: true, v: fmt2(comprometido), link: `/custos-diretos?semana=${semana}`,
+  const c2 = { l: `Custo direto realizado ${abrirGrupos ? '▴' : '▾'}`, c: REAL, pill: true, v: fmt2(comprometido),
+    onClick: () => setAbrirGrupos(v => !v), title: 'Ver o custo direto por grupo',
     s: carregando || <>{agregado > 0 ? `${pc1(100 * comprometido / agregado)} do executado (pago + a pagar)` : '—'}
       <div>pago {fmt2(pago)} · a pagar {fmt2(aPagarDireto)} · até {sRef}</div></> }
   const c3 = { l: 'Saldo custo direto', v: fmt2(saldoDireto), c: cor(saldoDireto),
@@ -280,6 +283,7 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
       <div className="kpi-grid" style={grade}>{linha1.map(card)}</div>
       <div className="kpi-grid" style={{ ...grade, marginTop: -10 }}>{linha2.map(card)}</div>
       {!fisico && abrirAPagar && <ListaContas semana={semana} />}
+      {abrirGrupos && <CustoPorGrupo semana={semana} />}
       <div className="kpi-grid" style={{ ...grade, marginTop: -10 }}>{card(c11)}</div>
       {abrirProjecao && (
         <div className="card"><div className="kpi-sub">Projeções no próximo pedido.</div></div>
@@ -469,7 +473,7 @@ function CurvaS({ semanas, semAtual, base, so }) {
                 <div className="kpi-sub">{s.nome}</div>
                 <div style={{ font: '600 13px var(--mono)', color: s.cor }}>
                   {h[s.campo] == null ? '—'
-                    : s.tipo === 'pct' ? fmtPct(h[s.campo], 2) : fmtMoeda(h[s.campo])}
+                    : s.tipo === 'pct' ? fmtPct(h[s.campo], 2) : fmtMoeda2(h[s.campo])}
                 </div>
               </div>
             ))}

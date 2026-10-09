@@ -1,273 +1,284 @@
 import Head from 'next/head'
-import Link from 'next/link'
 import { useRouter } from 'next/router'
-import { useEffect, useMemo, useState } from 'react'
-import { OBRA, fmtMoeda, fmtMoedaK, fmtPct, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
+import React, { useEffect, useMemo, useState } from 'react'
+import { OBRA, fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, semanaLabel, semanaAtualObra, semanasPorMes } from '../lib/constants'
+import { datasDaSemana } from '../lib/calendario'
+import { PLAN, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar } from '../components/ValorCusto'
 
-// Custos diretos (pedido 13; CLAUDE.md 08/10): o custo comprometido (pago + a pagar) é comparado com o VALOR
-// AGREGADO da linha (% de avanço × orçado; material pela regra do material; locação = gasto limitado à verba;
-// custo de tempo pela obra decorrida), NÃO com o planejado do cronograma. O planejado fica só como "ritmo de gasto
-// vs cronograma". Números da /api/painel (lib/valor-agregado.js).
-const nf = (v, d = 0) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d })
-const REGRA = {
-  servico: 'medição', material: 'regra do material', locacao: 'gasto até a verba', tempo: 'obra decorrida',
+// Memória de cálculo do valor agregado (pedido 13C): layout, cores, formato e textos da /valor-agregado do Flats.
+// Uma tabela única, grupo → linhas (código + pavimento). Números da /api/painel (lib/valor-agregado.js):
+//   serviço = % medido × orçado · material = maior entre o % do serviço vinculado × orçado e o custo até o orçado
+//   locação (17) = gasto até a verba · limpeza/EPI (1.1.6) e mão de obra direta (18) = tempo decorrido da obra
+const s2 = (n) => `S${String(n).padStart(2, '0')}`
+const dmy = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '')
+
+// Código, serviço, pavimento, orçado, % físico, medido, valor agregado, pago, a pagar, % do orçado,
+// estouro / economia, saldo da verba
+const COLS = '70px minmax(180px,1fr) 86px 122px 62px 104px 122px 118px 110px 64px 122px 122px'
+
+// CÓDIGO e SERVIÇO ficam fixos na rolagem lateral (sticky à esquerda, com o fundo da própria linha)
+const FIXAS = [0, 78]   // left de cada coluna fixa: 70px do código + 8px de espaço
+function Linha({ children, cabecalho, destaque, onClick, title }) {
+  const fundo = destaque ? 'var(--bg3)' : 'var(--bg2)'
+  return (
+    <div onClick={onClick} title={title}
+      style={{
+        cursor: onClick ? 'pointer' : 'default', display: 'grid', gridTemplateColumns: COLS, gap: 8,
+        padding: '7px 0', borderBottom: '1px solid var(--border)',
+        font: cabecalho ? MONO : "500 12px 'IBM Plex Sans'", textTransform: cabecalho ? 'uppercase' : 'none',
+        letterSpacing: cabecalho ? '.08em' : 0, color: cabecalho ? 'var(--text2)' : 'var(--text)',
+        background: fundo, alignItems: 'center',
+        ...(cabecalho ? { position: 'sticky', top: 0, zIndex: 3 } : {}),
+      }}>
+      {React.Children.map(children, (c, n) => (n < FIXAS.length && React.isValidElement(c)
+        ? React.cloneElement(c, { style: { ...(c.props.style || {}), position: 'sticky', left: FIXAS[n], zIndex: 2,
+            background: fundo, alignSelf: 'stretch', display: 'flex', alignItems: 'center',
+            ...(n === 1 ? { boxShadow: '6px 0 6px -6px rgba(0,0,0,.6)' } : {}) } })
+        : c))}
+    </div>
+  )
 }
 
-function soma(ls) {
-  const t = { orcado: 0, agregado: 0, pago: 0, a_pagar: 0, comprometido: 0, plan_valor: 0 }
-  ls.forEach(l => Object.keys(t).forEach(k => { t[k] += Number(l[k]) || 0 }))
-  t.desvio = t.agregado - t.comprometido
-  t.desvio_pct = t.agregado > 0 ? 100 * t.desvio / t.agregado : (t.comprometido > 0 ? -100 : null)
-  t.perc_orcado = t.orcado > 0 ? 100 * t.comprometido / t.orcado : null
-  t.saldo_verba = t.orcado - t.comprometido
-  return t
+// Subtotal de grupo ou total: todas as colunas somadas
+function LinhaTotal({ codigo, nome, t, forte, onClick, aberto, title }) {
+  const w = forte ? 600 : 500
+  const semExec = !(t.agregado > 0.005)
+  return (
+    <Linha destaque onClick={onClick} title={title}>
+      <div style={{ fontWeight: w }}>
+        {onClick && <span style={{ color: 'var(--text2)', marginRight: 6 }}>{aberto ? '▾' : '▸'}</span>}
+        {codigo}
+      </div>
+      <div style={{ fontWeight: w, textTransform: 'uppercase' }}>{nome}</div>
+      <div />
+      <div style={{ ...dir, fontWeight: w }}>{fmtMoeda(t.orcado)}</div>
+      <div style={{ ...dir, fontWeight: w }}>{semExec || !(t.orcado > 0) ? '—' : fmtP((t.agregado / t.orcado) * 100)}</div>
+      <div />
+      <div style={{ ...dir, fontWeight: w, color: semExec ? 'var(--text2)' : PLAN }}>{semExec ? '—' : fmtMoeda(t.agregado)}</div>
+      <div style={{ ...dir, fontWeight: w }}>{t.pago > 0.005 ? fmtMoeda(t.pago) : '—'}</div>
+      <div style={{ ...dir, fontWeight: w, color: t.a_pagar > 0.005 ? AMBAR : 'var(--text2)' }}>
+        {t.a_pagar > 0.005 ? fmtMoeda(t.a_pagar) : '—'}
+      </div>
+      <PercOrcado orcado={t.orcado} pago={t.pago} aPagar={t.a_pagar} peso={w} />
+      <Estouro agregado={t.agregado} pago={t.pago} aPagar={t.a_pagar} peso={w} orcado={t.orcado} />
+      <Saldo orcado={t.orcado} pago={t.pago} aPagar={t.a_pagar} peso={w} />
+    </Linha>
+  )
 }
 
-export default function CustosDiretos() {
+const medidoDe = (i) => i.tipo === 'tempo' ? 'tempo'
+  : i.tipo === 'locacao' ? 'verba'
+  : i.tipo === 'material' ? (i.material_comprado ? 'compra antecipada' : `herda ${(i.herda_de || []).map((h) => h.codigo_eap).join('/')}`)
+  : i.semana_medida ? s2(i.semana_medida) : '—'
+const tituloMedido = (i) => i.material_comprado
+  ? `Compra antecipada (material comprado antes da execução): agregado = custo pago + a pagar, até o orçado. O serviço está em ${fmtP(i.perc_real)}.`
+  : i.tipo === 'tempo' ? 'Verba que corre com o tempo: linear pelos dias da obra'
+  : i.tipo === 'locacao' ? 'Locação: valor agregado = gasto até a verba'
+  : i.tipo === 'material' ? `Material sem medição própria: usa o % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${h.pavimento}${h.peso < 1 ? ` (peso ${fmtP(h.peso * 100)})` : ''}`).join(' + ')}; ou o custo pago + a pagar até o orçado, se for maior`
+  : ''
+
+export default function ValorAgregado() {
   const router = useRouter()
   const [semana, setSemana] = useState(semanaAtualObra())
   const [p, setP] = useState(null)
   const [erro, setErro] = useState(null)
   const [busca, setBusca] = useState('')
-  const [aberto, setAberto] = useState({})
+  const [mostrarZerados, setMostrarZerados] = useState(false)
+  const [abertos, setAbertos] = useState(() => new Set())   // grupos abertos; começa tudo recolhido
 
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())
   }, [router.query.semana])
   useEffect(() => {
     setP(null); setErro(null)
-    fetch(`/api/painel?semana=${semana}`).then(r => r.json())
-      .then(j => (j.error ? setErro(j.message || j.error) : setP(j))).catch(e => setErro(e.message))
+    fetch(`/api/painel?semana=${semana}`).then((r) => r.json())
+      .then((j) => (j.error ? setErro(j.message || j.error) : setP(j))).catch((e) => setErro(e.message))
   }, [semana])
 
-  const arvore = useMemo(() => {
+  const grupos = useMemo(() => {
     if (!p) return []
-    const q = busca.trim().toLowerCase()
-    const grupos = {}
-    p.linhas.forEach(l => {
-      const g = (grupos[l.grupo_num] = grupos[l.grupo_num] || { num: l.grupo_num, nome: l.grupo_nome, todas: [], pavs: {} })
-      g.todas.push(l)
-      const pv = (g.pavs[l.pavimento] = g.pavs[l.pavimento] || { nome: l.pavimento, todas: [], visiveis: [], ocultas: 0 })
-      pv.todas.push(l)
-      if (l.orcado === 0 && l.comprometido === 0) { pv.ocultas++; return }   // escondida, mas somada
-      if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + l.pavimento).toLowerCase().includes(q)) return
-      pv.visiveis.push(l)
+    const termo = busca.trim().toLowerCase()
+    const mapa = new Map()
+    p.linhas.forEach((i) => {
+      if (!mapa.has(i.grupo_num)) mapa.set(i.grupo_num, { grupo: i.grupo_num, nome: i.grupo_nome, todas: [], itens: [], zerados: 0 })
+      const g = mapa.get(i.grupo_num)
+      g.todas.push(i)                                   // subtotal sempre com todas as linhas
+      const custo = i.pago + i.a_pagar
+      if (i.orcado <= 0.005 && custo <= 0.005 && i.agregado <= 0.005) return   // linha de título: não aparece
+      const casa = !termo || [i.codigo_eap, i.descricao, i.pavimento].some((x) => String(x || '').toLowerCase().includes(termo))
+      if (!casa) return
+      if (i.agregado > 0.005 || custo > 0.005 || mostrarZerados) g.itens.push(i)
+      else g.zerados += 1
     })
-    return Object.values(grupos).sort((a, b) => a.num - b.num).map(g => ({
-      ...g, t: soma(g.todas),
-      pavs: Object.values(g.pavs).map(pv => ({ ...pv, t: soma(pv.todas) })).filter(pv => pv.visiveis.length),
-    })).filter(g => g.pavs.length)
-  }, [p, busca])
+    return Array.from(mapa.values()).sort((a, b) => a.grupo - b.grupo).map((g) => ({ ...g, t: somar(g.todas) }))
+  }, [p, busca, mostrarZerados])
 
-  const abrirTodos = (on) => {
-    const o = {}
-    if (on) arvore.forEach(g => { o['g' + g.num] = true; g.pavs.forEach(pv => { o['g' + g.num + '|' + pv.nome] = true }) })
-    setAberto(o)
-  }
-  const corDesvio = (v) => v == null ? 'var(--text3)' : v >= 0 ? 'var(--green-tx)' : 'var(--red-tx)'
-  const txtDesvio = (v, pct) => v == null ? '—'
-    : (v >= 0 ? '▼ economia ' : '▲ estouro ') + fmtMoedaK(Math.abs(v)) + (pct != null ? ` (${nf(Math.abs(pct), 0)}%)` : '')
-  const fmtBR = d => d.toLocaleDateString('pt-BR')
+  const chaves = grupos.map((g) => `g${g.grupo}`)
+  const todosAbertos = chaves.length > 0 && chaves.every((k) => abertos.has(k))
+  const estaAberto = (k) => !!busca.trim() || abertos.has(k)
+  const alternar = (k) => setAbertos((atual) => {
+    const novo = new Set(atual)
+    if (novo.has(k)) novo.delete(k)
+    else novo.add(k)
+    return novo
+  })
 
-  const Valores = ({ t, forte }) => (
-    <>
-      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--text2)' }}>{fmtMoedaK(t.orcado)}</td>
-      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: forte ? 600 : 400 }}>{fmtMoedaK(t.agregado)}</td>
-      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: forte ? 600 : 400 }}>
-        {t.comprometido > 0 ? fmtMoedaK(t.comprometido) : <span style={{ color: 'var(--text3)' }}>—</span>}
-        {t.a_pagar > 0 && (
-          <div className="kpi-sub">{fmtMoedaK(t.pago)} pago + {fmtMoedaK(t.a_pagar)} a pagar</div>
-        )}
-      </td>
-      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11,
-                   color: t.perc_orcado > 100 ? 'var(--red-tx)' : 'var(--text2)' }}>
-        {t.perc_orcado == null ? '—' : fmtPct(t.perc_orcado, 0)}
-      </td>
-      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: corDesvio(t.comprometido || t.agregado ? t.desvio : null) }}>
-        {t.comprometido || t.agregado ? txtDesvio(t.desvio, t.desvio_pct) : '—'}
-      </td>
-      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11,
-                   color: t.saldo_verba < 0 ? 'var(--red-tx)' : 'var(--text2)' }}>{fmtMoedaK(t.saldo_verba)}</td>
-    </>
-  )
-  const Cabecalho = () => (
-    <thead>
-      <tr>
-        <th style={{ width: 64 }}>EAP</th>
-        <th>Linha</th>
-        <th style={{ width: 92, textAlign: 'right' }}>Orçado</th>
-        <th style={{ width: 96, textAlign: 'right' }}>Valor agregado</th>
-        <th style={{ width: 132, textAlign: 'right' }}>Custo (pago + a pagar)</th>
-        <th style={{ width: 70, textAlign: 'right' }}>% do orçado</th>
-        <th style={{ width: 150, textAlign: 'right' }}>Estouro / economia</th>
-        <th style={{ width: 92, textAlign: 'right' }}>Saldo da verba</th>
-      </tr>
-    </thead>
-  )
-
-  const t = p?.totais
-  const saldo = t ? t.agregado - t.comprometido : 0
+  const pt = p ? p.totais.por_tipo : null
+  const total = p ? somar(p.linhas) : null
 
   return (
     <>
-      <Head><title>{'Custos diretos - ' + OBRA.nome}</title></Head>
+      <Head><title>{'Valor agregado - ' + OBRA.nome}</title></Head>
       <div className="page">
-        <header className="header">
-          <div className="obra-eye">Custos diretos — custo comprometido vs valor agregado</div>
-          <h1 className="obra-nome">{OBRA.nome}</h1>
-          <div className="obra-info">S{semana} · {fmtBR(inicioSemana(semana))} a {fmtBR(fimSemana(semana))}</div>
-          <div className="btn-row" style={{ marginTop: 16 }}>
-            <Link href="/" className="btn-secondary" style={{ textDecoration: 'none', display: 'inline-block' }}>← Dashboard</Link>
+        <div className="header">
+          <div className="header-top">
+            <div>
+              <div className="obra-eye">
+                <a onClick={() => router.push('/')} style={{ cursor: 'pointer', color: 'inherit', textDecoration: 'none' }}>← Visão geral</a>
+              </div>
+              <div className="obra-nome">Memória de cálculo · Valor agregado</div>
+              <div className="obra-info">
+                {OBRA.nome} · até {s2(semana)} ({dmy(datasDaSemana(semana).data_fim)}) · serviço executado a preço de orçamento
+              </div>
+            </div>
+            <div className="sel-wrap">
+              <div className="sel-lbl">Semana</div>
+              <select className="periodo" value={semana} onChange={(e) => setSemana(+e.target.value)}>
+                {semanasPorMes().map((g) => (
+                  <optgroup key={g.mes} label={g.mes}>
+                    {g.semanas.map((s) => <option key={s} value={s}>{semanaLabel(s)}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
           </div>
-        </header>
-
-        <div style={{ marginTop: 22 }}>
-          {erro ? <div className="card">Não foi possível carregar: {erro}</div>
-            : !p ? <div className="loading">Carregando custos diretos…</div> : (
-            <>
-              <div className="kpi-grid">
-                <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
-                  <div className="kpi-label">Valor agregado até S{semana}</div>
-                  <div className="kpi-value">{fmtMoeda(t.agregado)}</div>
-                  <div className="kpi-sub">de {fmtMoedaK(t.orcado)} orçados ({fmtPct(100 * t.agregado / t.orcado)})</div>
-                </div>
-                <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
-                  <div className="kpi-label">Custo comprometido</div>
-                  <div className="kpi-value">{fmtMoeda(t.comprometido)}</div>
-                  <div className="kpi-sub">
-                    {fmtMoedaK(t.pago)} pago + {fmtMoedaK(t.a_pagar)} a pagar
-                    {p.contas.fechamento ? ` (fechamento ${p.contas.fechamento})` : ''}
-                  </div>
-                </div>
-                <div className="kpi" style={{ borderLeft: `3px solid ${saldo >= 0 ? 'var(--green)' : 'var(--red)'}` }}>
-                  <div className="kpi-label">Saldo (agregado − comprometido)</div>
-                  <div className="kpi-value" style={{ color: corDesvio(saldo) }}>{fmtMoeda(saldo)}</div>
-                  <div className="kpi-sub" style={{ color: corDesvio(saldo) }}>{saldo >= 0 ? 'Economia' : 'Estouro'}</div>
-                </div>
-                <div className="kpi" style={{ borderLeft: '3px solid var(--border)' }}>
-                  <div className="kpi-label">Ritmo de gasto vs cronograma</div>
-                  <div className="kpi-value" style={{ fontSize: 18, color: 'var(--text2)' }}>{fmtMoeda(t.plan_valor)}</div>
-                  <div className="kpi-sub">planejado até S{semana} (só referência; não é a comparação do custo)</div>
-                </div>
-              </div>
-
-              <div className="form-section">
-                <div className="form-grid-2">
-                  <div className="field">
-                    <label>Período</label>
-                    <select className="styled" value={semana} onChange={e => setSemana(+e.target.value)}>
-                      {semanasPorMes().map(g => (
-                        <optgroup key={g.mes} label={g.mes}>
-                          {g.semanas.map(s => <option key={s} value={s}>{semanaLabel(s)}</option>)}
-                        </optgroup>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label>Buscar</label>
-                    <input type="text" value={busca} onChange={e => setBusca(e.target.value)} placeholder="grupo, linha, código ou pavimento" />
-                  </div>
-                </div>
-                <div className="btn-row" style={{ marginTop: 12 }}>
-                  <button className="btn-sm" onClick={() => abrirTodos(true)}>Abrir todos</button>
-                  <button className="btn-sm" onClick={() => abrirTodos(false)}>Recolher todos</button>
-                </div>
-              </div>
-
-              {arvore.map(g => {
-                const kg = 'g' + g.num
-                const onG = !!aberto[kg]
-                return (
-                  <div className="card" key={kg} style={{ padding: 0, overflow: 'hidden' }}>
-                    <div onClick={() => setAberto({ ...aberto, [kg]: !onG })} style={{ cursor: 'pointer', padding: '14px 22px' }}>
-                      <table><tbody><tr>
-                        <td style={{ width: 64 }}>
-                          <div style={{ width: 32, height: 32, borderRadius: 9, background: 'var(--bg3)', display: 'flex',
-                                        alignItems: 'center', justifyContent: 'center', font: '600 13px var(--mono)', color: 'var(--text2)' }}>{g.num}</div>
-                        </td>
-                        <td><div style={{ font: '600 14px "IBM Plex Sans"' }}>{g.nome} <span style={{ color: 'var(--text3)', fontSize: 11 }}>{onG ? '▲' : '▼'}</span></div>
-                          <div className="kpi-sub">ritmo do cronograma até S{semana}: {fmtMoedaK(g.t.plan_valor)}</div></td>
-                        <Valores t={g.t} forte />
-                      </tr></tbody></table>
-                    </div>
-                    {onG && g.pavs.map(pv => {
-                      const kp = kg + '|' + pv.nome
-                      const onP = !!aberto[kp]
-                      return (
-                        <div key={kp} style={{ borderTop: '1px solid var(--border)' }}>
-                          <div onClick={() => setAberto({ ...aberto, [kp]: !onP })}
-                               style={{ cursor: 'pointer', padding: '8px 22px', background: 'var(--bg3)' }}>
-                            <table><tbody><tr>
-                              <td style={{ width: 64 }} />
-                              <td><span style={{ font: '600 12px "IBM Plex Sans"' }}>{pv.nome}</span>{' '}
-                                <span style={{ color: 'var(--text3)', fontSize: 11 }}>{onP ? '▲' : '▼'}</span>
-                                <div className="kpi-sub">{pv.visiveis.length} linha{pv.visiveis.length === 1 ? '' : 's'}
-                                  {pv.ocultas ? ` · ${pv.ocultas} sem orçado nem custo (somadas, escondidas)` : ''}</div></td>
-                              <Valores t={pv.t} />
-                            </tr></tbody></table>
-                          </div>
-                          {onP && (
-                            <div style={{ padding: '4px 22px 12px' }}>
-                              <table>
-                                <Cabecalho />
-                                <tbody>
-                                  {pv.visiveis.map(l => (
-                                    <tr key={l.id}>
-                                      <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{l.codigo_eap}</td>
-                                      <td>
-                                        {l.descricao}
-                                        <div className="kpi-sub">
-                                          {REGRA[l.tipo]}
-                                          {l.tipo === 'servico' && ` · ${l.medido ? fmtPct(l.perc_real, 0) + ' executado' : 'sem medição'}`}
-                                          {l.tipo === 'material' && ` · segue ${(l.herda_de || []).map(h => h.codigo_eap).join(' + ')} (${fmtPct(l.perc_real, 0)})`
-                                            + (l.material_comprado ? ' · comprado antes da execução (neutro)' : '')}
-                                          {l.tipo === 'locacao' && ` · neutro · ${fmtPct(l.perc_verba || 0, 0)} da verba`}
-                                          {l.tipo === 'tempo' && ` · ${fmtPct(l.perc_real, 0)} da obra decorrida`}
-                                          {` · ritmo do cronograma ${fmtMoedaK(l.plan_valor)}`}
-                                        </div>
-                                      </td>
-                                      <Valores t={l} />
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })}
-
-              {p.fora_orcamento.length > 0 && (
-                <div className="card">
-                  <div className="card-title">Custos com EAP fora do orçamento</div>
-                  <table><tbody>
-                    {p.fora_orcamento.map(f => (
-                      <tr key={f.codigo_eap}><td style={{ fontFamily: 'var(--mono)' }}>{f.codigo_eap}</td>
-                        <td style={{ textAlign: 'right' }}>{fmtMoeda(f.pago)} pago</td>
-                        <td style={{ textAlign: 'right' }}>{fmtMoeda(f.a_pagar)} a pagar</td></tr>
-                    ))}
-                  </tbody></table>
-                </div>
-              )}
-
-              <div className="notas-box" style={{ marginTop: 16 }}>
-                <b>Valor agregado</b> é quanto do orçado já foi "ganho" pela execução: % de avanço da linha × orçado.
-                Material segue o serviço vinculado e vale o maior entre esse avanço e o custo comprometido limitado ao
-                orçado (material comprado antes da execução fica neutro). Locação (grupo 17) vale o gasto até a verba
-                (neutro). Limpeza/EPI (1.1.6) e mão de obra direta (grupo 18) seguem o tempo decorrido da obra.
-                <br /><br />
-                <b>Custo</b> = pago até o fim da S{semana} + a pagar do último fechamento
-                {p.contas.fechamento ? ` (${p.contas.fechamento})` : ''} (só direto e não recorrente). O pagamento sem
-                pavimento é rateado entre as linhas da EAP pelo orçado. <b>Estouro/economia</b> = valor agregado −
-                custo (▼ economia, ▲ estouro). <b>Saldo da verba</b> = orçado − custo. O planejado do cronograma aparece
-                só como ritmo de gasto. Linhas sem orçado e sem custo ficam escondidas, mas somadas.
-              </div>
-            </>
-          )}
         </div>
+
+        {erro ? <div className="loading">Erro: {erro}</div>
+          : !p ? <div className="loading">Montando a memória de cálculo...</div> : (
+          <>
+            <div className="kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginTop: 18 }}>
+              <div className="kpi">
+                <div className="kpi-label">Produção · grupos 1–16</div>
+                <div className="kpi-value" style={{ fontSize: 20, color: PLAN }}>{fmtMoeda(pt.servico.agregado + pt.material.agregado)}</div>
+                <div className="kpi-sub">% medido × orçado da linha (material pelo serviço vinculado)</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">Locação · grupo 17</div>
+                <div className="kpi-value" style={{ fontSize: 20, color: PLAN }}>{fmtMoeda(pt.locacao.agregado)}</div>
+                <div className="kpi-sub">
+                  Gasto, limitado ao orçado
+                  {pt.locacao.orcado > 0 && (
+                    <div style={{ color: pt.locacao.comprometido > pt.locacao.orcado ? VERMELHO : undefined }}>
+                      gasto {fmtMoeda(pt.locacao.comprometido)} de {fmtMoeda(pt.locacao.orcado)} · {fmtP((pt.locacao.comprometido / pt.locacao.orcado) * 100)} da verba
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">Mão de obra direta e limpeza · 18 e 1.1.6</div>
+                <div className="kpi-value" style={{ fontSize: 20, color: PLAN }}>{fmtMoeda(pt.tempo.agregado)}</div>
+                <div className="kpi-sub">Tempo decorrido · {fmtP(p.avanco.fracao_tempo)} da obra</div>
+              </div>
+              <div className="kpi">
+                <div className="kpi-label">Valor agregado total</div>
+                <div className="kpi-value" style={{ fontSize: 20 }}>{fmtMoeda(p.totais.agregado)}</div>
+                <div className="kpi-sub">Produção + locação + mão de obra direta</div>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="card-title">Custo direto — linha a linha</div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
+                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar código, serviço ou pavimento" style={{ maxWidth: 320 }} />
+                <button className="btn-sm" onClick={() => setAbertos(todosAbertos ? new Set() : new Set(chaves))}>
+                  {todosAbertos ? 'Recolher todos' : 'Abrir todos'}
+                </button>
+                <button className="btn-sm" onClick={() => setMostrarZerados((v) => !v)}>
+                  {mostrarZerados ? 'Ocultar itens não iniciados' : 'Mostrar itens não iniciados'}
+                </button>
+                <span style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text2)' }}>
+                  Valor agregado = orçado da linha × % físico · <i>tempo</i>: verba linear pela obra · <i>herda</i>: material sem
+                  medição, usa o % do serviço vinculado · <i>compra antecipada</i>: material comprado antes da execução, agregado =
+                  custo pago + a pagar até o orçado · <i>verba</i>: locação, gasto até o orçado · <i>a pagar</i>: contas a pagar do
+                  último fechamento{p.contas.fechamento ? ` (${p.contas.fechamento})` : ''} · estouro / economia = (pago + a pagar) −
+                  valor agregado · saldo da verba = orçado − pago − a pagar · % orç. = (pago + a pagar) ÷ orçado
+                </span>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <div style={{ minWidth: 1300 }}>
+                  <Linha cabecalho>
+                    <div>Código</div>
+                    <div>Serviço</div>
+                    <div>Pav.</div>
+                    <div style={dir}>Orçado</div>
+                    <div style={dir}>% físico</div>
+                    <div style={dir}>Medido</div>
+                    <div style={dir}>Valor agregado</div>
+                    <div style={dir}>Pago</div>
+                    <div style={dir} title="Contas a pagar do último fechamento (só direto e não recorrente)">A pagar</div>
+                    <div style={dir} title="(Pago + a pagar) ÷ orçado. Vermelho acima de 100%">% orç.</div>
+                    <div style={dir} title="(Pago + a pagar) − valor agregado. Positivo = estouro (vermelho), negativo = economia (verde); o % é sobre o valor agregado">
+                      Estouro / economia
+                    </div>
+                    <div style={dir} title="Orçado − pago − a pagar. Vermelho: verba estourada">Saldo da verba</div>
+                  </Linha>
+
+                  {grupos.map((g) => (
+                    <div key={g.grupo}>
+                      <LinhaTotal codigo={g.grupo} nome={g.nome} t={g.t} forte
+                        onClick={() => alternar(`g${g.grupo}`)} aberto={estaAberto(`g${g.grupo}`)}
+                        title={g.t.plan_valor > 0
+                          ? `Ritmo de gasto vs cronograma: pago ${fmtMoeda(g.t.pago)} de ${fmtMoeda(g.t.plan_valor)} planejados até ${s2(semana)} (${fmtP((g.t.pago / g.t.plan_valor) * 100)})`
+                          : 'Sem planejado do cronograma até a semana'} />
+                      {estaAberto(`g${g.grupo}`) && g.itens.map((i) => {
+                        const semExec = !(i.agregado > 0.005)
+                        const estouroPago = i.pago > i.agregado + 0.005 && i.agregado > 0
+                        return (
+                          <Linha key={i.id}>
+                            <div style={{ color: 'var(--text2)' }}>{i.codigo_eap}</div>
+                            <div>{i.descricao}</div>
+                            <div style={{ color: 'var(--text2)' }}>{i.pavimento || '—'}</div>
+                            <div style={dir}>{fmtMoeda(i.orcado)}</div>
+                            <div style={dir}>{semExec || i.tipo === 'locacao' || i.perc_real == null ? '—' : fmtP(i.perc_real)}</div>
+                            <div style={{ ...dir, color: i.tipo === 'servico' ? 'var(--text2)' : PLAN }} title={tituloMedido(i)}>{medidoDe(i)}</div>
+                            <div style={{ ...dir, color: semExec ? 'var(--text2)' : PLAN }}>{semExec ? '—' : fmtMoeda(i.agregado)}</div>
+                            <div style={{ ...dir, color: estouroPago ? VERMELHO : 'var(--text)' }} title={estouroPago ? 'Pago acima do executado' : ''}>
+                              {i.pago > 0.005 ? fmtMoeda(i.pago) : '—'}
+                            </div>
+                            <div style={{ ...dir, color: i.a_pagar > 0.005 ? AMBAR : 'var(--text2)' }}>{i.a_pagar > 0.005 ? fmtMoeda(i.a_pagar) : '—'}</div>
+                            <PercOrcado orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
+                            <Estouro agregado={i.agregado} pago={i.pago} aPagar={i.a_pagar} orcado={i.orcado}
+                              neutro={i.material_comprado || i.tipo === 'locacao'} />
+                            <Saldo orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
+                          </Linha>
+                        )
+                      })}
+                      {estaAberto(`g${g.grupo}`) && g.zerados > 0 && (
+                        <div style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text2)', padding: '6px 0 10px 100px' }}>
+                          {g.zerados} {g.zerados === 1 ? 'item não iniciado' : 'itens não iniciados'} (0%)
+                        </div>
+                      )}
+                    </div>
+                  ))}
+
+                  <LinhaTotal codigo="" nome="Total do custo direto" forte t={total} />
+                </div>
+              </div>
+              <div style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text2)', marginTop: 10, lineHeight: 1.6 }}>
+                <b>A pagar</b> = contas a pagar do último fechamento, a mesma base do card "Custo direto a pagar".{' '}
+                <b>Estouro / economia</b> = (pago + a pagar) − valor agregado: positivo (vermelho) custou mais que o orçado
+                pelo que foi executado, negativo (verde) custou menos; o % é sobre o valor agregado e a eficiência aparece
+                ao passar o mouse. <b>Saldo da verba</b> = orçado − pago − a pagar; em vermelho, verba estourada. Pago em
+                vermelho: pago acima do executado. O ritmo de gasto vs cronograma aparece ao passar o mouse no nome do grupo.
+                {p.fora_orcamento.length > 0 && (
+                  <> Custo com EAP fora do orçamento (fora da tabela): {p.fora_orcamento.map((f) => `${f.codigo_eap} ${fmtMoeda(f.pago + f.a_pagar)}`).join('; ')}.</>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </>
   )

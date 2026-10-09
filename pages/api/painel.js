@@ -11,7 +11,8 @@ export default async function handler(req, res) {
   await carregarCalendario(supabase)
   const S = Math.min(Math.max(parseInt(req.query.semana) || semanaAtualObra(), 1), OBRA.prazo_semanas)
   try {
-    const p = await montarPainel(supabase, S)
+    // ?detalhe=1: cada linha leva os lançamentos pagos e os títulos a pagar (quadro "custo direto por grupo")
+    const p = await montarPainel(supabase, S, { detalhe: req.query.detalhe === '1' })
     res.setHeader('Cache-Control', 'no-store')
     if (req.query.linhas === '0') delete p.linhas
     return res.status(200).json(p)
