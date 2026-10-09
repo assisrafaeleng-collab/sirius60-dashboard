@@ -6,7 +6,7 @@
 // CAIXA do período (mão de obra | material). Compras só no botão discreto. Clique na atividade = memória de cálculo e
 // histórico. Hooks no topo (erro #310). Nada inventado: campo vazio em amarelo para preencher.
 import React, { useEffect, useState } from 'react'
-import { fmtP1, fmtMoeda2, CORES_VA } from '../lib/constants'
+import { fmtP1, fmtMoeda2, CORES_VA, rotuloPavimento } from '../lib/constants'
 import { calcularTermino, pctNoPeriodo, caixaAtividade } from '../lib/pontos-atencao'
 import { fetchComSenhaSemJanela, temSenha } from '../lib/fetch-com-senha'
 import Desbloqueio from './Desbloqueio'
@@ -185,7 +185,7 @@ export default function PontosAtencao({ semana }) {
           <td style={{ fontSize: 12, cursor: 'pointer', paddingLeft: 30 }} onClick={() => setLinhaAberta(on ? null : a.id)} title="Ver memória de cálculo e alterações">
             <span style={{ color: CINZA, marginRight: 4 }}>{on ? '▾' : '▸'}</span>
             <span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{a.codigo_eap}</span> {a.descricao.length > 40 ? a.descricao.slice(0, 38) + '…' : a.descricao}
-            <span style={{ color: CINZA }}> · {a.pavimento}</span>
+            <span style={{ color: CINZA }}> · {rotuloPavimento(a.pavimento, a.codigo_eap)}</span>
           </td>
           <td style={num}>{nf(a.quantidade, 1)} {a.unidade}</td>
           <td style={num}>{fmtP1(a.real)}</td>
@@ -205,7 +205,7 @@ export default function PontosAtencao({ semana }) {
             {mudouIx && (
               <div>
                 <button className="btn-sm" style={btnMini} disabled={!(Number(e.indice) > 0)}
-                        onClick={() => setConfirmar({ id: a.id, campo: 'indice', valor: e.indice, texto: `Gravar índice ${nf(e.indice, 4)} Hh/${a.unidade} em ${a.codigo_eap} ${a.pavimento}?` })}>salvar</button>
+                        onClick={() => setConfirmar({ id: a.id, campo: 'indice', valor: e.indice, texto: `Gravar índice ${nf(e.indice, 4)} Hh/${a.unidade} em ${a.codigo_eap} ${rotuloPavimento(a.pavimento, a.codigo_eap)}?` })}>salvar</button>
                 <button className="btn-sm" style={{ ...btnMini, marginLeft: 4 }} onClick={() => limpar(a.id, ['indice'])}>voltar</button>
               </div>
             )}
@@ -222,7 +222,7 @@ export default function PontosAtencao({ semana }) {
                 {(Number(e.oficiais) || 0) + (Number(e.ajudantes) || 0) > 0 && (
                   <button className="btn-sm" style={btnMini}
                           onClick={() => setConfirmar({ id: a.id, campo: 'equipe', valor: { oficiais: Number(e.oficiais) || 0, ajudantes: Number(e.ajudantes) || 0, funcao: e.funcao || '' },
-                            texto: `Gravar equipe ${Number(e.oficiais) || 0} ${e.funcao || 'oficial'} + ${Number(e.ajudantes) || 0} ajudante(s) em ${a.codigo_eap} ${a.pavimento}?` })}>salvar</button>
+                            texto: `Gravar equipe ${Number(e.oficiais) || 0} ${e.funcao || 'oficial'} + ${Number(e.ajudantes) || 0} ajudante(s) em ${a.codigo_eap} ${rotuloPavimento(a.pavimento, a.codigo_eap)}?` })}>salvar</button>
                 )}
               </div>
             ) : (
@@ -234,11 +234,11 @@ export default function PontosAtencao({ semana }) {
               <div>
                 {mudouEq && Number(e.equipes) > 0 && (
                   <button className="btn-sm" style={btnMini}
-                          onClick={() => setConfirmar({ id: a.id, campo: 'equipes', valor: Number(e.equipes), texto: `Gravar ${e.equipes} equipe(s) em ${a.codigo_eap} ${a.pavimento}?` })}>salvar</button>
+                          onClick={() => setConfirmar({ id: a.id, campo: 'equipes', valor: Number(e.equipes), texto: `Gravar ${e.equipes} equipe(s) em ${a.codigo_eap} ${rotuloPavimento(a.pavimento, a.codigo_eap)}?` })}>salvar</button>
                 )}
                 <button className="btn-sm" style={{ ...btnMini, marginLeft: 4 }}
                         onClick={() => (a.equipes_definidas != null
-                          ? setConfirmar({ id: a.id, campo: 'equipes', valor: null, texto: `Voltar ${a.codigo_eap} ${a.pavimento} ao número sugerido de equipes (apaga o valor salvo)?` })
+                          ? setConfirmar({ id: a.id, campo: 'equipes', valor: null, texto: `Voltar ${a.codigo_eap} ${rotuloPavimento(a.pavimento, a.codigo_eap)} ao número sugerido de equipes (apaga o valor salvo)?` })
                           : limpar(a.id, ['equipes']))}>voltar ao sugerido</button>
               </div>
             )}
@@ -310,7 +310,7 @@ export default function PontosAtencao({ semana }) {
             {linha(`${per}|g${k}`, `${k} ${g.nome}`, g.mo + g.material, true)}
             {cxAbertos.has(`${per}|g${k}`) && sub(g.itens.map(({ a, x }) => (
               <div key={a.id} style={{ display: 'flex', gap: 8 }}>
-                <span style={{ flex: 1 }}>{a.codigo_eap} {a.descricao.slice(0, 40)} · {a.pavimento}</span>
+                <span style={{ flex: 1 }}>{a.codigo_eap} {a.descricao.slice(0, 40)} · {rotuloPavimento(a.pavimento, a.codigo_eap)}</span>
                 <span style={{ fontFamily: 'var(--mono)' }}>MO {rs(x.mo)} · material {rs(x.material)} · <b>{rs(x.total)}</b></span>
               </div>
             )))}
@@ -382,7 +382,7 @@ export default function PontosAtencao({ semana }) {
           <tbody>
             {d.compras.map((c, i) => (
               <tr key={i}>
-                <td style={{ fontSize: 12 }}><span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{c.codigo_eap}</span> {c.descricao} <span style={{ color: CINZA }}>{c.pavimento}</span></td>
+                <td style={{ fontSize: 12 }}><span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{c.codigo_eap}</span> {c.descricao} <span style={{ color: CINZA }}>{rotuloPavimento(c.pavimento, c.codigo_eap)}</span></td>
                 <td style={{ ...num, color: CINZA }}>{c.regra === 'ultimo_mes' ? c.planejado.slice(5, 7) + '/' + c.planejado.slice(0, 4) : dmy(c.planejado)}</td>
                 <td style={num}>{c.regra === 'ultimo_mes' ? c.necessidade.slice(5, 7) + '/' + c.necessidade.slice(0, 4) : dmy(c.necessidade)}</td>
                 <td style={{ ...num, color: c.status === 'vencido' ? VERMELHO : c.pedir_ate && c.pedir_ate <= em6m ? AMBAR : undefined }}>
@@ -436,7 +436,7 @@ export default function PontosAtencao({ semana }) {
                         const kp = `${kg}|${p}`
                         return (
                           <React.Fragment key={kp}>
-                            {cabGrupo(kp, p, resumoGrupo(itens), 1)}
+                            {cabGrupo(kp, rotuloPavimento(p, g.num), resumoGrupo(itens), 1)}
                             {grupos.has(kp) && itens.map(linhaAtividade)}
                           </React.Fragment>
                         )

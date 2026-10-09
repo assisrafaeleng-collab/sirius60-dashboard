@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { fmtMoedaK, fmtPct, CORES } from '../lib/constants'
+import { fmtMoedaK, fmtPct, CORES, rotuloPavimento } from '../lib/constants'
 
 // Ordem física, do térreo para cima. Áreas sem pavimento vão para o fim.
 const ORDEM = ['Reservatório', 'Terraço', '3º Pav', '2º Pav', '1º Pav', 'Térreo',
@@ -118,7 +118,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
                         onMouseLeave={() => setFoco(null)}
                         title={cel.tipo === 'sembase'
                           ? `Em andamento, mas sem ${porHora ? 'horas' : 'custo'} no cronograma — troque a base para medir`
-                          : undefined}
+                          : rotuloPavimento(pav, g) !== pav ? rotuloPavimento(pav, g) : undefined}
                         style={{ background: cor.bg, color: cor.tx, borderRadius: 5,
                                  textAlign: 'center', padding: '9px 4px', cursor: 'default',
                                  font: '600 11px var(--mono)',
@@ -145,7 +145,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
                         padding: '10px 14px', background: 'var(--bg3)', borderRadius: 9,
                         border: '1px solid var(--border)' }}>
             <div style={{ font: '600 12px "IBM Plex Sans"' }}>
-              {foco.pav} · {SIGLA[foco.g] || foco.g}
+              {rotuloPavimento(foco.pav, foco.g)} · {SIGLA[foco.g] || foco.g}
             </div>
             {foco.tipo === 'sembase' ? (
               <div style={{ fontSize: 12, color: 'var(--amber-tx)' }}>

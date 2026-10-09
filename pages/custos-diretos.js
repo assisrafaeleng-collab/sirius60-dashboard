@@ -1,7 +1,7 @@
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import React, { useEffect, useMemo, useState } from 'react'
-import { OBRA, fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, semanaLabel, semanaAtualObra, semanasPorMes } from '../lib/constants'
+import { OBRA, fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, semanaLabel, semanaAtualObra, semanasPorMes, rotuloPavimento } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
 import { PLAN, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar, ResumoVerbaForma } from '../components/ValorCusto'
 
@@ -82,8 +82,8 @@ const tituloMedido = (i) => i.material_comprado
   ? `Compra antecipada (material comprado antes da execução): agregado = custo pago + a pagar, até o orçado. O serviço está em ${fmtP(i.perc_real)}.`
   : i.tipo === 'tempo' ? 'Verba que corre com o tempo: linear pelos dias da obra'
   : i.tipo === 'locacao' ? 'Locação: valor agregado = gasto até a verba'
-  : i.verba_forma ? `Verba de forma (material reaproveitado): valor agregado = % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${h.pavimento}`).join(' + ')} × orçado; custo = ${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba`
-  : i.tipo === 'material' ? `Material sem medição própria: usa o % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${h.pavimento}${h.peso < 1 ? ` (peso ${fmtP(h.peso * 100)})` : ''}`).join(' + ')}; ou o custo pago + a pagar até o orçado, se for maior`
+  : i.verba_forma ? `Verba de forma (material reaproveitado): valor agregado = % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)}`).join(' + ')} × orçado; custo = ${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba`
+  : i.tipo === 'material' ? `Material sem medição própria: usa o % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)}${h.peso < 1 ? ` (peso ${fmtP(h.peso * 100)})` : ''}`).join(' + ')}; ou o custo pago + a pagar até o orçado, se for maior`
   : ''
 
 export default function ValorAgregado() {
@@ -114,7 +114,7 @@ export default function ValorAgregado() {
       g.todas.push(i)                                   // subtotal sempre com todas as linhas
       const custo = i.pago + i.a_pagar
       if (i.orcado <= 0.005 && custo <= 0.005 && i.agregado <= 0.005) return   // linha de título: não aparece
-      const casa = !termo || [i.codigo_eap, i.descricao, i.pavimento].some((x) => String(x || '').toLowerCase().includes(termo))
+      const casa = !termo || [i.codigo_eap, i.descricao, rotuloPavimento(i.pavimento, i.codigo_eap)].some((x) => String(x || '').toLowerCase().includes(termo))
       if (!casa) return
       // Não iniciado = sem % físico, sem valor agregado, sem pago e sem a pagar: escondido, mas fica no subtotal
       if (i.perc_real > 0 || i.agregado > 0.005 || custo > 0.005 || mostrarZerados) g.itens.push(i)
@@ -253,7 +253,7 @@ export default function ValorAgregado() {
                           <Linha key={i.id}>
                             <div style={{ color: 'var(--text2)' }}>{i.codigo_eap}</div>
                             <div>{i.descricao}</div>
-                            <div style={{ color: 'var(--text2)', fontSize: 11 }}>{i.pavimento || '—'}</div>
+                            <div style={{ color: 'var(--text2)', fontSize: 11 }}>{rotuloPavimento(i.pavimento, i.codigo_eap) || '—'}</div>
                             <div style={dir}>{fmtMoeda(i.orcado)}</div>
                             <div style={dir}>{semExec || i.tipo === 'locacao' || i.perc_real == null ? '—' : fmtP(i.perc_real)}</div>
                             <div style={{ ...dir, overflowWrap: 'break-word', color: i.tipo === 'servico' ? 'var(--text2)' : PLAN }} title={tituloMedido(i)}>{medidoDe(i)}</div>

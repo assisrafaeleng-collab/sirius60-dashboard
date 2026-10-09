@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { fetchComSenha } from '../lib/fetch-com-senha'
 import { datasDaSemana } from '../lib/calendario'
 import { OBRA, CORES, fmtMoedaK, fmtPct, fmtDate, semanaLabel,
-         inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo, hojeSaoPaulo } from '../lib/constants'
+         inicioSemana, fimSemana, dataParaSemana , ehCustoDeTempo, hojeSaoPaulo, rotuloPavimento } from '../lib/constants'
 
 const AZUL = '#5B9BD5'
 const REALIZADO = CORES.realizado   // branco (pedido 13E)
@@ -57,7 +57,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
       if (filtro === 'semana' && !(i.a <= semana && i.b >= semana)) return false
       if (filtro === 'andamento' && !(i._acum > 0 && i._acum < 100)) return false
       if (!q) return true
-      return (i.d + ' ' + i.i + ' ' + i.n + ' ' + i.p).toLowerCase().includes(q)
+      return (i.d + ' ' + i.i + ' ' + i.n + ' ' + rotuloPavimento(i.p, i.g)).toLowerCase().includes(q)
     })
   }, [itens, med, semana, filtro, busca, materiais])
 
@@ -254,7 +254,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13 }}>{i.d}</div>
                   <div className="kpi-sub">
-                    {i.p} · S{i.a}–S{i.b} · {i.q.toLocaleString('pt-BR',
+                    {rotuloPavimento(i.p, i.g)} · S{i.a}–S{i.b} · {i.q.toLocaleString('pt-BR',
                       { maximumFractionDigits: 1 })} {i.u} · {fmtMoedaK(i.c)}
                   </div>
                 </div>

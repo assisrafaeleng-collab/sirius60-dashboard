@@ -3,7 +3,7 @@
 // grupo). Três níveis, tudo recolhido: grupo → atividades (código + pavimento) → lançamentos pagos e títulos a pagar.
 // Dados da /api/painel?detalhe=1 (mesmo valor agregado e custo dos cards). Hooks no topo (erro #310).
 import React, { useEffect, useState } from 'react'
-import { fmtMoeda2 as fmtMoeda, fmtP1 as fmtP } from '../lib/constants'
+import { fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, rotuloPavimento } from '../lib/constants'
 import { competenciaDaSemana } from '../lib/calendario'
 import ListaLancamentos from './ListaLancamentos'
 import { PLAN, AMBAR, CINZA, VERMELHO, BarraEstouro, NeutroVerba, Estouro, percDoOrcado, fmtPercOrcado,
@@ -151,7 +151,7 @@ export default function CustoPorGrupo({ semana }) {
                         <tr onClick={() => lanc.length && setItemAberto(on ? null : k)} style={{ cursor: lanc.length ? 'pointer' : 'default' }}>
                           <td style={{ fontFamily: 'var(--mono)', color: CINZA }}>{i.codigo_eap}</td>
                           <td>
-                            {i.codigo_eap} · {i.descricao} · {i.pavimento}
+                            {i.codigo_eap} · {i.descricao} · {rotuloPavimento(i.pavimento, i.codigo_eap)}
                             {i.tipo === 'material' && (
                               <span style={{ color: CINZA, fontSize: 11, marginLeft: 8 }}
                                     title="Linha só de material: não tem medição própria; segue o avanço do serviço vinculado">

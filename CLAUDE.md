@@ -53,6 +53,13 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   contínua a partir de S01 = 03/08/2026. O planejado do cronograma é distribuído pelos dias reais de cada mês
   (mês M do cronograma = mês do calendário), para fechar também por mês.
 - Pavimentos: Fundação, Subsolo, Pilotis, Térreo, 1º, 2º e 3º Pav, Terraço, Reservatório, Edifício, Externo, Canteiro.
+- Rótulo "Subsolo / Pilotis" (Rafael, 09/10): nas telas, as linhas do GRUPO 3 com pavimento "Subsolo" no banco
+  (subgrupo 3.1, que inclui a laje do Pilotis) aparecem como "Subsolo / Pilotis" — avanço físico (cabeçalho do
+  pavimento, memória de cálculo, busca), valor agregado/custos diretos, custo por grupo, medição semanal, pontos de
+  atenção (subgrupo da Estrutura, linhas, confirmações, caixa, compras) e mapa de pavimentos (dica e leitura da célula
+  do grupo 3; a linha do mapa continua "Subsolo" porque junta vários grupos). Só o texto: lib/constants.js
+  rotuloPavimento(pavimento, código ou grupo). Banco, chaves, filtros e ligação com o cronograma continuam "Subsolo".
+  NÃO vale para a alvenaria 4.2.x nem para outros grupos.
 - Site e calendário (pedido 11): as semanas vêm de lib/calendario.js — o servidor lê calendario_semanas e
   curva_s_semanal_planejada (lib/calendario-servidor.js) e o navegador recebe pela /api/calendario (pages/_app.js).
   Sem as tabelas, fica o cálculo antigo (96 semanas de 7 dias) e o site funciona igual: por isso o código vai

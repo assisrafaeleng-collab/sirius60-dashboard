@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import React, { useEffect, useMemo, useState } from 'react'
 import MemoriaAvanco from '../components/MemoriaAvanco'
-import { OBRA, CORES, fmtPct, fmtP1, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes } from '../lib/constants'
+import { OBRA, CORES, fmtPct, fmtP1, semanaLabel, inicioSemana, fimSemana, semanaAtualObra, semanasPorMes, rotuloPavimento } from '../lib/constants'
 
 // Avanço físico (pedido 13; layout do Flats no 13E): só linhas de SERVIÇO, grupo → pavimento → serviço; grupo com um
 // pavimento só (1 Canteiro, 2 Fundação) abre direto nas linhas de serviço.
@@ -71,7 +71,7 @@ export default function AvancoFisico() {
       const desvio = l.perc_real - l.perc_plan
       if (filtro === 'ativos' && l.perc_plan <= 0 && !l.medido) return
       if (filtro === 'atrasados' && !(desvio < -5)) return
-      if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + l.pavimento).toLowerCase().includes(q)) return
+      if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + rotuloPavimento(l.pavimento, l.grupo_num)).toLowerCase().includes(q)) return
       pv.servicos.push({ ...l, desvio })
     })
     return Object.values(grupos).sort((a, b) => a.num - b.num).map(g => {
@@ -296,7 +296,7 @@ export default function AvancoFisico() {
                           const onP = !!aberto[kp]
                           return (
                             <div key={kp}>
-                              <Cab nivel={1} titulo={pv.nome} on={onP} ag={pv.ag} sub={subDe(pv, true)}
+                              <Cab nivel={1} titulo={rotuloPavimento(pv.nome, g.num)}on={onP} ag={pv.ag} sub={subDe(pv, true)}
                                    onClick={() => setAberto(a => ({ ...a, [kp]: !a[kp] }))} />
                               {onP && tabelaServicos(pv.servicos)}
                             </div>
