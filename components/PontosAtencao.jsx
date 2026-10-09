@@ -1,178 +1,282 @@
-// Painel "Pontos de atenção — próxima semana e próximos 30 dias" (pedido 14B), logo abaixo do Diário de ocorrências,
-// no mesmo estilo (recolhido; abre ao clicar). Dados da /api/pontos-atencao (lib/pontos-atencao.js). Hooks no topo.
-// Regra de ouro: índice, equipe ou prazo que falta aparece como "dado pendente" (nada inventado).
+// Painel "Pontos de atenção" (pedido 14C: mais simples e editável). Abaixo do Diário de ocorrências, recolhido.
+// Topo: 4 números. Abas: Atrasadas | Próxima semana | Próximos 30 dias (mesma tabela). Compras só num botão discreto.
+// Índice (Hh/un) e nº de equipes editáveis: o término recalcula na hora (lib/pontos-atencao.js calcularTermino);
+// "salvar" grava pela /api/pontos-atencao (senha da obra; confirmação na página). Clique na linha = memória de cálculo
+// e histórico das alterações. Hooks no topo (erro #310). Nada inventado: campo vazio em amarelo para preencher.
 import React, { useEffect, useState } from 'react'
-import { fmtMoeda2, fmtP1, CORES_VA } from '../lib/constants'
+import { fmtP1, CORES_VA } from '../lib/constants'
+import { calcularTermino } from '../lib/pontos-atencao'
+import { fetchComSenhaSemJanela, temSenha } from '../lib/fetch-com-senha'
+import Desbloqueio from './Desbloqueio'
 
 const { estouro: VERMELHO, aPagar: AMBAR, economia: VERDE } = CORES_VA
 const CINZA = '#8b919c'
+const AMARELO_FUNDO = 'rgba(201,164,92,.18)'
+const dm = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}` : '—')
 const dmy = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : '—')
-const nf = (v, d = 1) => (v == null ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }))
-const COR_ST = { ATRASADA: VERMELHO, 'A INICIAR': AMBAR, 'EM DIA': CINZA, ADIANTADA: VERDE }
-const COR_COMPRA = { vencido: VERMELHO, 'vence na próxima semana': AMBAR, 'vence em 30 dias': AMBAR, 'prazo pendente': CINZA, 'no prazo': CINZA }
-const DIAS = { 1: 'seg', 2: 'ter', 3: 'qua', 4: 'qui', 5: 'sex', 6: 'sáb', 7: 'dom' }
-const pendente = <span style={{ color: AMBAR, fontSize: 11 }}>dado pendente</span>
+const nf = (v, d = 1) => (v == null || v === '' || Number.isNaN(Number(v)) ? '—' : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }))
+const ORIGEM = { cronograma: 'cronograma', cpu_flats: 'CPU Flats', rafael: 'Rafael', 'rafael-site': 'Rafael (site)' }
+const ABAS = [['atrasadas', 'Atrasadas'], ['semana', 'Próxima semana'], ['mes', 'Próximos 30 dias']]
+const inp = (pend) => ({ width: 70, padding: '3px 6px', fontFamily: 'var(--mono)', fontSize: 12, background: pend ? AMARELO_FUNDO : undefined })
+const btnMini = { fontSize: 10, padding: '1px 6px' }
+const ixTxt = (v) => String(Number(Number(v).toFixed(4))).replace('.', ',')   // até 4 casas, sem zeros à direita
+const num = { textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, whiteSpace: 'nowrap' }
+const diasUt = (n) => `${n} dia${n === 1 ? '' : 's'} út${n === 1 ? 'il' : 'eis'}`
 
 export default function PontosAtencao({ semana }) {
   const [aberto, setAberto] = useState(false)
   const [d, setD] = useState(null)
   const [erro, setErro] = useState(null)
-  const [hz, setHz] = useState('semana')          // semana | mes
-  const [verPend, setVerPend] = useState(false)
+  const [aba, setAba] = useState('atrasadas')
+  const [verCompras, setVerCompras] = useState(false)
+  const [linhaAberta, setLinhaAberta] = useState(null)
+  const [edit, setEdit] = useState({})             // { id: { indice, equipes, oficiais, ajudantes, funcao } } — só na tela
+  const [confirmar, setConfirmar] = useState(null) // { id, campo, valor, texto }
+  const [pedirSenha, setPedirSenha] = useState(false)
+  const [quem, setQuem] = useState('')
+  const [msg, setMsg] = useState(null)
+  const [recarga, setRecarga] = useState(0)
 
   useEffect(() => {
     if (!aberto) return
-    setD(null); setErro(null)
+    setErro(null)
     fetch(`/api/pontos-atencao?semana=${semana}`).then((r) => r.json())
       .then((j) => (j.error ? setErro(j.message || j.error) : setD(j))).catch((e) => setErro(e.message))
-  }, [aberto, semana])
+  }, [aberto, semana, recarga])
 
-  const faltaConfig = d ? Object.entries(d.configurado).filter(([, v]) => !v).map(([k]) => k) : []
-  const lista = d ? d.atividades.filter((a) => (hz === 'semana' ? a.no_h1 : true)) : []
-  const jornadaTxt = d ? `${nf(d.jornada.horas_dia, 0)} h/dia, ${d.jornada.dias_semana.map((x) => DIAS[x]).join('–').replace('seg–ter–qua–qui–sex', 'seg–sex')}` : ''
+  const ed = (id) => edit[id] || {}
+  const setCampo = (id, campo, v) => setEdit((e) => ({ ...e, [id]: { ...(e[id] || {}), [campo]: v } }))
+  const limpar = (id, campos) => setEdit((e) => { const x = { ...(e[id] || {}) }; campos.forEach((c) => delete x[c]); return { ...e, [id]: x } })
 
-  const Resumo = ({ r }) => (
-    <div className="kpi" style={{ flex: 1, minWidth: 260 }}>
-      <div className="kpi-label">{r.rotulo} · {dmy(r.de)} a {dmy(r.ate)} · {r.dias_uteis} dias úteis</div>
-      <div style={{ fontSize: 13, lineHeight: 1.7, marginTop: 6 }}>
-        <div><b style={{ color: r.atrasadas ? VERMELHO : undefined }}>{r.atrasadas} atrasada{r.atrasadas === 1 ? '' : 's'}</b> · {r.a_iniciar} a iniciar · {r.atividades} atividades</div>
-        <div>Horas: manter o ritmo {nf(r.horas_ritmo, 0)} h + recuperar o atraso {nf(r.horas_atraso, 0)} h = <b>{nf(r.horas_necessarias, 0)} h</b>
-          {r.horas_sem_indice > 0 && <span style={{ color: AMBAR, fontSize: 11 }}> · {r.horas_sem_indice} sem índice</span>}
-          <span style={{ color: CINZA, fontSize: 11 }}> (cronograma previa {nf(r.horas_previstas, 0)} h)</span></div>
-        <div>Equipes: ritmo {r.equipes_ritmo} + atraso {r.equipes_atraso} → <b>{r.equipes} sugeridas</b>{r.sem_equipe > 0 && <span style={{ color: AMBAR, fontSize: 11 }}> + {r.sem_equipe} sem equipe (pendente)</span>}</div>
-        <div>Desembolso previsto {r.desembolso == null ? '—' : fmtMoeda2(r.desembolso)}</div>
-        <div>Compras: <span style={{ color: r.compras_vencidas ? VERMELHO : undefined }}>{r.compras_vencidas} vencida{r.compras_vencidas === 1 ? '' : 's'}</span> · {r.compras_no_periodo} a pedir no período</div>
-      </div>
+  // valores efetivos (edição na tela > salvo > sugerido) e o término recalculado
+  const calc = (a) => {
+    const e = ed(a.id)
+    const mudouIx = e.indice !== undefined && e.indice !== ''
+    const pessoas = e.oficiais !== undefined || e.ajudantes !== undefined
+      ? (Number(e.oficiais) || 0) + (Number(e.ajudantes) || 0) : a.equipe ? a.equipe.pessoas : null
+    const equipes = e.equipes !== undefined && e.equipes !== '' ? e.equipes : a.equipes_definidas
+    return calcularTermino({ quantidade: a.quantidade, real: a.real, indice: mudouIx ? e.indice : a.indice,
+      horasTotal: mudouIx ? null : a.horas_total, pessoas, equipes, fimCrono: a.fim_crono, hoje: d.hoje, jornada: d.jornada, feriados: d.feriados })
+  }
+
+  async function gravar() {
+    const c = confirmar
+    if (!temSenha()) { setPedirSenha(true); return }
+    const r = await fetchComSenhaSemJanela('/api/pontos-atencao', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orcamento_id: c.id, campo: c.campo, valor: c.valor, quem }) })
+    if (r.status === 401) { setPedirSenha(true); return }
+    const j = await r.json()
+    if (!r.ok) { setMsg({ tipo: 'err', txt: j.error || 'Falha ao gravar' }); setConfirmar(null); return }
+    setMsg({ tipo: 'ok', txt: 'Gravado.' }); setConfirmar(null)
+    limpar(c.id, c.campo === 'equipe' ? ['oficiais', 'ajudantes', 'funcao'] : [c.campo])
+    setRecarga((x) => x + 1)
+  }
+
+  const lista = !d ? [] : d.atividades.filter((a) => (aba === 'atrasadas' ? a.atrasada : aba === 'semana' ? a.na_semana : a.em_30))
+  const em6m = d ? new Date(Date.parse(d.hoje) + 183 * 864e5).toISOString().slice(0, 10) : null
+  const alertasCompra = d ? d.compras.filter((c) => c.pedir_ate && c.pedir_ate <= em6m) : []
+  const numero = (l, v, cor) => (
+    <div key={l} className="kpi" style={{ flex: 1, minWidth: 150 }}>
+      <div className="kpi-label">{l}</div>
+      <div className="kpi-value" style={{ fontSize: 22, color: cor }}>{v}</div>
     </div>
   )
 
-  const h = (a) => a[hz]
   return (
     <div className="card">
       <div className="card-title" style={{ justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setAberto(!aberto)}>
-        <span>Pontos de atenção — próxima semana e próximos 30 dias</span>
+        <span>Pontos de atenção</span>
         <span style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <span className="kpi-sub">{d ? `${d.resumo.mes.atrasadas} atrasadas · ${d.compras.filter((c) => c.status === 'vencido').length} compras vencidas` : aberto ? 'carregando…' : `a partir da S${semana}`}</span>
+          <span className="kpi-sub">{d ? `${d.topo.atrasadas} atrasadas · ${d.topo.equipes} equipes sugeridas` : aberto ? 'carregando…' : `a partir da S${semana}`}</span>
           <span style={{ color: 'var(--text3)', fontSize: 11 }}>{aberto ? '▲' : '▼'}</span>
         </span>
       </div>
-      {aberto && (erro ? <div className="kpi-sub">Não foi possível carregar: {erro}</div> : !d ? <div className="loading">Analisando o horizonte…</div> : (
+      {aberto && (erro ? <div className="kpi-sub">Não foi possível carregar: {erro}</div> : !d ? <div className="loading">Analisando…</div> : (
         <>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+            {numero('Atrasadas', d.topo.atrasadas, d.topo.atrasadas ? VERMELHO : undefined)}
+            {numero('A executar na semana', d.topo.semana)}
+            {numero('A executar em 30 dias', d.topo.mes)}
+            {numero('Equipes sugeridas (30 dias)', d.topo.equipes)}
+          </div>
           <div className="kpi-sub" style={{ marginBottom: 10 }}>
-            Hoje = fim da S{d.semana} ({dmy(d.hoje)}) · jornada: {jornadaTxt} · {d.configurado.feriados ? 'feriados da tabela' : 'feriados nacionais e de Mariana'}
-            {faltaConfig.length > 0 && <span style={{ color: AMBAR }}> · configure as tabelas ({faltaConfig.join(', ')}): sem elas índices, equipes e prazos ficam pendentes</span>}
-          </div>
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 16 }}>
-            <Resumo r={d.resumo.semana} /><Resumo r={d.resumo.mes} />
+            Hoje = fim da S{d.semana} ({dmy(d.hoje)}) · jornada {nf(d.jornada.horas_dia, 0)} h/dia, seg–sex
+            {!d.configurado.indices && <span style={{ color: AMBAR }}> · configure as tabelas (SQL do planejamento) para ver índices e equipes</span>}
+            {d.configurado.indices && !d.configurado.edicao && <span style={{ color: AMBAR }}> · para salvar pelo site, rode o SQL 2 do planejamento</span>}
           </div>
 
-          <div className="btn-row" style={{ marginBottom: 10 }}>
-            {[['semana', 'Próxima semana'], ['mes', 'Próximos 30 dias']].map(([v, l]) => (
-              <button key={v} className="btn-sm" onClick={() => setHz(v)} style={hz === v ? { color: 'var(--text)', borderColor: 'var(--accent)' } : null}>{l}</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+            {ABAS.map(([v, l]) => (
+              <button key={v} className="btn-sm" onClick={() => setAba(v)} style={aba === v ? { color: 'var(--text)', borderColor: 'var(--accent)' } : null}>{l}</button>
             ))}
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Atividade</th>
-                  <th style={{ textAlign: 'right' }} title="Realizado (última medição) · planejado hoje · planejado no fim do horizonte">Real · hoje · fim</th>
-                  <th style={{ textAlign: 'right' }} title="O que o cronograma prevê dentro do período (planejado no fim − hoje)">Manter o ritmo</th>
-                  <th style={{ textAlign: 'right' }} title="Atraso de hoje (planejado − realizado) diluído em 30 dias; na próxima semana, a fração dos dias úteis">Recuperar atraso</th>
-                  <th style={{ textAlign: 'right' }} title="Hh por unidade: cronograma (atividade = uma linha) ou CPU do Flats (atividade agrupada)">Índice</th>
-                  <th>Equipe padrão</th>
-                  <th style={{ textAlign: 'right' }} title="Manter o ritmo + recuperar o atraso; equipes para o total (e para concluir no horizonte)">Total sugerido</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lista.map((a) => (
-                  <React.Fragment key={a.id}>
-                    <tr>
-                      <td style={{ fontSize: 12 }}>
-                        <span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{a.codigo_eap}</span> {a.descricao}
-                        <span style={{ color: CINZA }}> · {a.pavimento}</span>
-                        <div style={{ font: "600 10px 'IBM Plex Mono', monospace", color: COR_ST[a.status], letterSpacing: '.06em' }}>
-                          {a.status}{a.atraso_horas > 0 ? ` · ${nf(a.atraso_horas, 0)} h de atraso` : ''}
-                        </div>
-                        {a.cronograma_curto && (
-                          <div style={{ fontSize: 10, color: AMBAR }}>
-                            o cronograma prevê {nf(a.cronograma_curto.horas_cronograma, 0)} h; pelo índice real são {nf(a.cronograma_curto.horas_indice, 0)} h
-                            (+{nf(a.cronograma_curto.excesso_pct, 0)}%) — conferir duração
-                          </div>
-                        )}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11 }}>{fmtP1(a.real)} · {fmtP1(a.plan_hoje)} · {fmtP1(h(a).plan_fim)}</td>
-                      {[['ritmo', 'qtd_ritmo', 'horas_ritmo', 'equipes_ritmo'], ['atraso', 'qtd_atraso', 'horas_atraso', 'equipes_atraso']].map(([p, qd, hr, eqs]) => (
-                        <td key={p} style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11 }}>
-                          {fmtP1(h(a)[p])}<div style={{ color: CINZA }}>{nf(h(a)[qd], 1)} {a.unidade} · {h(a)[hr] == null ? pendente : `${nf(h(a)[hr], 0)} Hh`}
-                            {h(a)[eqs] != null && ` · ${h(a)[eqs]} eq.`}</div>
-                        </td>
-                      ))}
-                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11 }}
-                          title={a.indice_cronograma != null ? `pelo cronograma: ${nf(a.indice_cronograma, 4)} Hh/${a.unidade}` : ''}>
-                        {a.horas_total != null ? <>duração · {nf(a.horas_total, 0)} Hh</>
-                          : a.indice == null ? pendente : <>{nf(a.indice, 4)} Hh/{a.unidade}</>}
-                        <div style={{ color: a.conferir ? AMBAR : CINZA, fontSize: 10 }}>
-                          {({ cpu_flats: 'CPU Flats', rafael: 'Rafael', cronograma: 'cronograma' })[a.indice_origem] || ''}{a.conferir ? ` · conferir (crono ${nf(a.indice_cronograma, 4)})` : ''}
-                        </div>
-                      </td>
-                      <td style={{ fontSize: 11 }}>{a.equipe ? <>{a.equipe.composicao}<div style={{ color: CINZA }}>{a.equipe.pessoas} pessoas</div></> : pendente}</td>
-                      <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12 }}>
-                        {h(a).horas == null ? pendente : <>{nf(h(a).horas, 0)} Hh</>}
-                        <div>{h(a).equipes_total == null ? pendente : <><b>{h(a).equipes_total}</b> equipe{h(a).equipes_total === 1 ? '' : 's'}</>}</div>
-                        <div style={{ color: CINZA, fontSize: 10 }}>concluir: {h(a).horas_concluir == null ? '—' : `${nf(h(a).horas_concluir, 0)} Hh · ${h(a).equipes_concluir ?? '—'} eq.`}</div>
-                      </td>
-                    </tr>
-                    {a.insumos.length > 0 && (
-                      <tr>
-                        <td colSpan={7} style={{ padding: '0 0 8px 24px', fontSize: 11, color: CINZA }}>
-                          {a.insumos.map((m) => (
-                            <span key={m.id} style={{ marginRight: 16 }}>
-                              {m.codigo_eap} {m.descricao.slice(0, 40)}: {nf(m.qtd_30d, 1)} {m.unidade} em 30 dias
-                              {m.alerta && <b style={{ color: AMBAR }}> · {m.alerta}</b>}
-                            </span>
-                          ))}
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
+            <span style={{ flex: 1 }} />
+            <button className="btn-sm" onClick={() => setVerCompras((x) => !x)} style={{ color: CINZA }}>
+              Compras {verCompras ? '▾' : '▸'}{alertasCompra.length > 0 && <span style={{ color: AMBAR }}> {alertasCompra.length} vence{alertasCompra.length === 1 ? '' : 'm'} em 6 meses</span>}
+            </button>
           </div>
 
-          <div className="card-title" style={{ marginTop: 18 }}>Compras de prazo longo — obra toda</div>
-          <div className="kpi-sub" style={{ marginBottom: 8 }}>
-            Data projetada = início planejado {d.adiantamento
-              ? `${d.adiantamento.dias >= 0 ? 'adiantado' : 'atrasado'} ${Math.abs(d.adiantamento.dias)} dias (adiantamento da obra: ${nf(d.adiantamento.semanas, 1)} semanas, medição da S${d.adiantamento.semMed})`
-              : 'sem deslocamento (sem medição)'} · pedir até = projetada − antecedência; recalcula a cada medição
-          </div>
-          {d.compras.length === 0 ? <div className="kpi-sub">Sem itens cadastrados (tabela insumo_prazo_entrega).</div> : (
-            <table>
-              <thead><tr><th>Item</th><th>Categoria</th><th style={{ textAlign: 'right' }}>Planejado</th><th style={{ textAlign: 'right' }}>Projetado</th><th style={{ textAlign: 'right' }}>Pedir até</th><th>Situação</th></tr></thead>
+          {verCompras && (
+            <table style={{ marginBottom: 14 }}>
+              <thead><tr><th>Item</th><th style={{ textAlign: 'right' }}>Planejado</th><th style={{ textAlign: 'right' }}>Projetado</th><th style={{ textAlign: 'right' }}>Pedir até</th></tr></thead>
               <tbody>
                 {d.compras.map((c, i) => (
                   <tr key={i}>
                     <td style={{ fontSize: 12 }}><span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{c.codigo_eap}</span> {c.descricao} <span style={{ color: CINZA }}>{c.pavimento}</span></td>
-                    <td style={{ fontSize: 11 }}>{c.categoria}</td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: CINZA }}>{c.regra === 'ultimo_mes' ? `${c.planejado.slice(5, 7)}/${c.planejado.slice(0, 4)}` : dmy(c.planejado)}</td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11 }}>{c.regra === 'ultimo_mes' ? `${c.necessidade.slice(5, 7)}/${c.necessidade.slice(0, 4)}` : dmy(c.necessidade)}</td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11 }}>{c.regra === 'ultimo_mes' ? `comprar/instalar em ${c.necessidade.slice(5, 7)}/${c.necessidade.slice(0, 4)}` : dmy(c.pedir_ate)}</td>
-                    <td style={{ fontSize: 11, color: COR_COMPRA[c.status] }}>{c.status}</td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: CINZA }}>{c.regra === 'ultimo_mes' ? c.planejado.slice(5, 7) + '/' + c.planejado.slice(0, 4) : dmy(c.planejado)}</td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11 }}>{c.regra === 'ultimo_mes' ? c.necessidade.slice(5, 7) + '/' + c.necessidade.slice(0, 4) : dmy(c.necessidade)}</td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 11, color: c.status === 'vencido' ? VERMELHO : c.pedir_ate && c.pedir_ate <= em6m ? AMBAR : undefined }}>
+                      {c.regra === 'ultimo_mes' ? 'no último mês' : c.pedir_ate ? dmy(c.pedir_ate) : 'prazo pendente'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
 
-          <div style={{ marginTop: 14 }}>
-            <button className="btn-sm" onClick={() => setVerPend((v) => !v)}>{verPend ? '▴' : '▾'} Dados pendentes ({d.pendencias.length})</button>
-            {verPend && (
-              <ul style={{ fontSize: 11, color: 'var(--text2)', marginTop: 8, columns: 2 }}>
-                {d.pendencias.map((p, i) => <li key={i}><b>{p.tipo}</b> · {p.linha}: {p.dado}</li>)}
-              </ul>
-            )}
-          </div>
+          {pedirSenha && <Desbloqueio onLiberar={(q) => { setQuem(q || ''); setPedirSenha(false); setMsg({ tipo: 'ok', txt: 'Liberado. Clique em Gravar.' }) }} />}
+          {confirmar && !pedirSenha && (
+            <div className="toast" style={{ marginBottom: 10, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>{confirmar.texto}</span>
+              <button className="btn-primary" onClick={gravar}>Gravar</button>
+              <button className="btn-sm" onClick={() => setConfirmar(null)}>Cancelar</button>
+            </div>
+          )}
+          {msg && <div className={'toast ' + (msg.tipo === 'err' ? 'toast-err' : '')} style={{ marginBottom: 10 }} onClick={() => setMsg(null)}>{msg.txt}</div>}
+
+          {lista.length === 0 ? <div className="kpi-sub">Nada nesta aba.</div> : (
+            <div style={{ overflowX: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Atividade</th>
+                    <th style={{ textAlign: 'right' }}>Quantidade</th>
+                    <th style={{ textAlign: 'right' }}>% concluído</th>
+                    <th style={{ textAlign: 'right' }}>% planejado</th>
+                    <th style={{ textAlign: 'right' }}>Desvio</th>
+                    <th style={{ textAlign: 'right' }}>Falta</th>
+                    <th style={{ textAlign: 'right' }}>Índice (Hh/un)</th>
+                    <th style={{ textAlign: 'right' }}>Equipes</th>
+                    <th>Término</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lista.map((a) => {
+                    const e = ed(a.id)
+                    const t = calc(a)
+                    const desvio = a.real - a.plan_hoje
+                    const faltaQtd = (Math.max(100 - a.real, 0) / 100) * a.quantidade
+                    const semIndice = a.indice == null && a.horas_total == null
+                    const semEquipe = !a.equipe
+                    const mudouEq = e.equipes !== undefined
+                    const mudouIx = e.indice !== undefined
+                    const on = linhaAberta === a.id
+                    return (
+                      <React.Fragment key={a.id}>
+                        <tr>
+                          <td style={{ fontSize: 12, cursor: 'pointer' }} onClick={() => setLinhaAberta(on ? null : a.id)} title="Ver memória de cálculo e alterações">
+                            <span style={{ color: CINZA, marginRight: 4 }}>{on ? '▾' : '▸'}</span>
+                            <span style={{ fontFamily: 'var(--mono)', color: CINZA }}>{a.codigo_eap}</span> {a.descricao.length > 46 ? a.descricao.slice(0, 44) + '…' : a.descricao}
+                            <span style={{ color: CINZA }}> · {a.pavimento}</span>
+                          </td>
+                          <td style={num}>{nf(a.quantidade, 1)} {a.unidade}</td>
+                          <td style={num}>{fmtP1(a.real)}</td>
+                          <td style={num}>{fmtP1(a.plan_hoje)}</td>
+                          <td style={{ ...num, color: desvio < -0.05 ? VERMELHO : desvio > 0.05 ? VERDE : CINZA }}>
+                            {(desvio > 0 ? '+' : '') + nf(desvio, 1)} p.p.
+                          </td>
+                          <td style={num}>
+                            {nf(faltaQtd, 1)} {a.unidade}<div style={{ color: CINZA }}>{t.horas == null ? '—' : `${nf(t.horas, 0)} Hh`}</div>
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: 11 }}>
+                            {a.horas_total != null && !mudouIx ? (
+                              <span style={{ fontFamily: 'var(--mono)', cursor: 'pointer' }} title="Serviço por duração. Clique para trocar por um índice"
+                                    onClick={() => setCampo(a.id, 'indice', '')}>duração {nf(a.horas_total, 0)} Hh</span>
+                            ) : (
+                              <input type="text" inputMode="decimal" style={inp(semIndice && !mudouIx)} placeholder={semIndice ? 'preencher' : ''}
+                                     value={mudouIx ? String(e.indice).replace('.', ',') : a.indice == null ? '' : ixTxt(a.indice)}
+                                     onChange={(ev) => setCampo(a.id, 'indice', ev.target.value.replace(',', '.'))} />
+                            )}
+                            <div style={{ color: CINZA, fontSize: 10 }}>
+                              {a.indice_origem ? `sugerido (${ORIGEM[a.indice_origem] || a.indice_origem})` : 'sem índice'}
+                              {a.indice_cronograma != null && a.indice_origem !== 'cronograma' ? ` · cronograma ${nf(a.indice_cronograma, 3)}` : ''}
+                            </div>
+                            {mudouIx && (
+                              <div>
+                                <button className="btn-sm" style={btnMini} disabled={!(Number(e.indice) > 0)}
+                                        onClick={() => setConfirmar({ id: a.id, campo: 'indice', valor: e.indice, texto: `Gravar índice ${nf(e.indice, 4)} Hh/${a.unidade} em ${a.codigo_eap} ${a.pavimento}?` })}>salvar</button>
+                                <button className="btn-sm" style={{ ...btnMini, marginLeft: 4 }} onClick={() => limpar(a.id, ['indice'])}>voltar</button>
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'right', fontSize: 11 }}>
+                            {semEquipe ? (
+                              <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                <input type="number" min="0" style={{ ...inp(true), width: 44 }} placeholder="of." title="nº de oficiais"
+                                       value={e.oficiais ?? ''} onChange={(ev) => setCampo(a.id, 'oficiais', ev.target.value)} />
+                                <input type="number" min="0" style={{ ...inp(true), width: 44 }} placeholder="aj." title="nº de ajudantes"
+                                       value={e.ajudantes ?? ''} onChange={(ev) => setCampo(a.id, 'ajudantes', ev.target.value)} />
+                                <input type="text" style={{ ...inp(true), width: 90 }} placeholder="função" title="função do oficial"
+                                       value={e.funcao ?? ''} onChange={(ev) => setCampo(a.id, 'funcao', ev.target.value)} />
+                                {(Number(e.oficiais) || 0) + (Number(e.ajudantes) || 0) > 0 && (
+                                  <button className="btn-sm" style={btnMini}
+                                          onClick={() => setConfirmar({ id: a.id, campo: 'equipe', valor: { oficiais: Number(e.oficiais) || 0, ajudantes: Number(e.ajudantes) || 0, funcao: e.funcao || '' },
+                                            texto: `Gravar equipe ${Number(e.oficiais) || 0} ${e.funcao || 'oficial'} + ${Number(e.ajudantes) || 0} ajudante(s) em ${a.codigo_eap} ${a.pavimento}?` })}>salvar</button>
+                                )}
+                              </div>
+                            ) : (
+                              <input type="number" min="1" style={{ ...inp(false), width: 52 }}
+                                     value={mudouEq ? e.equipes : t.usadas ?? ''} onChange={(ev) => setCampo(a.id, 'equipes', ev.target.value)} />
+                            )}
+                            <div style={{ color: CINZA, fontSize: 10 }}>
+                              sugerido {t.sugeridas ?? '—'}{a.equipe ? ` · ${a.equipe.composicao}` : ''}
+                            </div>
+                            {!semEquipe && (mudouEq || a.equipes_definidas != null) && (
+                              <div>
+                                {mudouEq && Number(e.equipes) > 0 && (
+                                  <button className="btn-sm" style={btnMini}
+                                          onClick={() => setConfirmar({ id: a.id, campo: 'equipes', valor: Number(e.equipes), texto: `Gravar ${e.equipes} equipe(s) em ${a.codigo_eap} ${a.pavimento}?` })}>salvar</button>
+                                )}
+                                <button className="btn-sm" style={{ ...btnMini, marginLeft: 4 }}
+                                        onClick={() => (a.equipes_definidas != null
+                                          ? setConfirmar({ id: a.id, campo: 'equipes', valor: null, texto: `Voltar ${a.codigo_eap} ${a.pavimento} ao número sugerido de equipes (apaga o valor salvo)?` })
+                                          : limpar(a.id, ['equipes']))}>voltar ao sugerido</button>
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ fontSize: 11 }}>
+                            {t.termino ? (
+                              <>
+                                <span>com {t.usadas} equipe{t.usadas === 1 ? '' : 's'} termina em <b>{dm(t.termino)}</b> ({diasUt(t.dias)})</span>
+                                <div style={{ color: t.cumpre ? VERDE : VERMELHO }}>
+                                  cronograma: {dm(a.fim_crono)} · {t.cumpre ? 'cumpre' : `atrasa ${diasUt(t.atrasa)}`}
+                                </div>
+                              </>
+                            ) : <span style={{ color: AMBAR }}>preencha {semIndice ? 'o índice' : ''}{semIndice && semEquipe ? ' e ' : ''}{semEquipe ? 'a equipe' : ''}</span>}
+                          </td>
+                        </tr>
+                        {on && (
+                          <tr>
+                            <td colSpan={9} style={{ fontSize: 11, color: 'var(--text2)', background: 'var(--bg)', lineHeight: 1.7 }}>
+                              <b>Memória de cálculo</b> · horas que faltam = (100% − {fmtP1(a.real)}) × {a.horas_total != null && !mudouIx ? `${nf(a.horas_total, 0)} Hh (duração)` : `${nf(a.quantidade, 1)} ${a.unidade} × índice`}
+                              {' '}= {nf(t.horas, 0)} Hh · 1 equipe = {t.capacidade_dia ?? '—'} Hh/dia · data-alvo {dmy(t.alvo)}
+                              ({t.dias_ate_alvo} dias úteis) · sugerido {t.sugeridas ?? '—'} equipe(s)
+                              <br />Em 30 dias: manter o ritmo {nf(a.mes.horas_ritmo, 0)} Hh · recuperar o atraso {nf(a.mes.horas_atraso, 0)} Hh
+                              · o cronograma previa {nf(a.mes.horas_previstas, 0)} Hh · horas da linha no orçamento {nf(a.hh, 1)} Hh
+                              {a.cronograma_curto && <> · <span style={{ color: AMBAR }}>cronograma curto: prevê {nf(a.cronograma_curto.horas_cronograma, 0)} h, pelo índice são {nf(a.cronograma_curto.horas_indice, 0)} h</span></>}
+                              {a.insumos && a.insumos.length > 0 && <><br />Materiais em 30 dias: {a.insumos.map((m) => `${m.codigo_eap} ${nf(m.qtd_30d, 1)} ${m.unidade}${m.alerta ? ' (' + m.alerta + ')' : ''}`).join(' · ')}</>}
+                              <br /><b>Alterações</b>: {a.historico && a.historico.length
+                                ? a.historico.map((h, i) => <span key={i}>{i ? ' · ' : ''}{dmy(String(h.editado_em).slice(0, 10))} {h.editado_por || '—'}: {h.campo} {h.valor_anterior ?? '—'} → {h.valor_novo ?? 'sugerido'}</span>)
+                                : 'nenhuma'}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       ))}
     </div>

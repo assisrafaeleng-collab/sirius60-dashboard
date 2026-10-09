@@ -268,6 +268,14 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   card "Adiantamento"); pedir até = projetada − prazo; recalcula a cada medição (por frente/pavimento: ainda não).
 - Tabelas (supabase/planejamento/1-tabelas-pontos-atencao.sql): equipe_padrao, indice_produtividade (por id da linha),
   insumo_prazo_entrega, obra_jornada, obra_feriados — RLS, sem grant.
+- Tela (pedido 14C, mais simples): 4 números (atrasadas | a executar na semana | em 30 dias | equipes sugeridas), abas
+  Atrasadas | Próxima semana | Próximos 30 dias, compras só no botão "Compras ▸". Por atividade: horas que faltam =
+  (100% − concluído) × quantidade × índice; data-alvo = fim no cronograma (já passou → hoje + 30 dias); equipes
+  sugeridas = horas ÷ (pessoas × 8 h × dias úteis até o alvo); término com N equipes e se cumpre/atrasa. Índice e nº de
+  equipes editáveis (recalcula na hora); linha sem índice/equipe: campos amarelos para preencher. Salvar: POST
+  /api/pontos-atencao com SENHA_MEDICAO, confirmação na página, histórico em planejamento_historico
+  (supabase/planejamento/2-edicao-no-site.sql: equipes_definidas, equipe_oficiais/ajudantes/funcao, editado_por/em,
+  origem 'rafael-site').
 - Contenção 15.1.4 (Externo) não executada: início empurrado para S16 (09/11/2026), mesma duração (11 semanas, até
   S26) e mesmas 150 h / R$ 200.000 (supabase/semanas/4-contencao-reprogramada.sql; total da curva não muda).
 - Estrutura do Pilotis (Rafael, fase 3): está orçada no subgrupo 3.1 (SUBSOLO - VIGAS-PILARES-LAJE PILOTIS + PISO
