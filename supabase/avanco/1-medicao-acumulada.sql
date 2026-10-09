@@ -16,7 +16,10 @@
 --     é o % ACUMULADO do material naquela data. Se o serviço já tem retrato próprio na MESMA data, vale o do serviço
 --     (o do material era uma medição paralela do mesmo avanço; somar contaria duas vezes) e o do material não entra.
 --     Conferido em 08/10: as 5 caem em datas em que o serviço tem medição própria → nenhuma muda o serviço.
---     Resultado: 23 medições → 18 retratos.
+--   - FORA da carga (Rafael, 09/10/2026): as 2 medições da contenção 15.1.4 Externo (ids 4 e 36: 15% em 23/08 e
+--     +5% em 30/09), porque a contenção NÃO foi executada. Ficam na tabela antiga e no backup; não viram retrato.
+--     Resultado: 23 medições → 21 na carga → 16 retratos.
+--   - Pré-requisito: supabase/orcamento/4-vinculo-material.sql (já rodado em 09/10: 53 vínculos, 49 materiais).
 -- Tabela nova: RLS ligado, SEM política, SEM permissão para anon/authenticated (CLAUDE.md).
 -- =====================================================================
 begin;
@@ -32,6 +35,20 @@ begin
   end if;
   if to_regclass('public.orcamento_material_servico') is null then
     raise exception 'rode antes o supabase/orcamento/4-vinculo-material.sql';
+  end if;
+  -- vínculo como o SQL 4 deixou (09/10/2026): 53 vínculos de 49 materiais, todos marcados e_material
+  select count(*), count(distinct material_id) into n, passa from public.orcamento_material_servico where obra_id = 'sirius60';
+  if n <> 53 or passa <> 49 then
+    raise exception 'orcamento_material_servico com % vínculos de % materiais (esperado 53 e 49): confira antes', n, passa;
+  end if;
+  if (select count(*) from public.orcamento_planejado where obra_id = 'sirius60' and e_material) <> 49 then
+    raise exception 'e_material marcado em quantidade diferente de 49 linhas: confira antes';
+  end if;
+  -- as 2 medições excluídas (15.1.4 Externo, contenção não executada) estão como em 09/10/2026
+  if (select count(*) from public.avanco_fisico_realizado where obra_id = 'sirius60' and codigo_eap = '15.1.4'
+        and pavimento = 'Externo' and ((id = 4 and incremento_pct = 15) or (id = 36 and incremento_pct = 5))) <> 2
+     or (select count(*) from public.avanco_fisico_realizado where obra_id = 'sirius60' and codigo_eap = '15.1.4') <> 2 then
+    raise exception 'medições da 15.1.4 diferentes das ids 4 (15%%) e 36 (5%%) de 09/10/2026: confira antes';
   end if;
   select count(*), round(sum(incremento_pct), 4), count(*) filter (where incremento_pct < 0)
     into n, s, neg from public.avanco_fisico_realizado where obra_id = 'sirius60';
@@ -106,6 +123,7 @@ with lin as (           -- cada medição com a linha do orçamento e o serviço
     join public.orcamento_planejado o on o.obra_id = r.obra_id and o.codigo_eap = r.codigo_eap and o.pavimento = r.pavimento
     left join public.orcamento_material_servico v on v.obra_id = r.obra_id and v.material_id = o.id
    where r.obra_id = 'sirius60'
+     and r.id not in (4, 36)   -- 15.1.4 Externo: contenção não executada (Rafael, 09/10/2026)
 ), acum as (            -- % acumulado da linha ORIGINAL (incrementos somados, teto 100)
   select lin.*,
          least(sum(incremento_pct) over (partition by codigo_eap, pavimento
@@ -143,8 +161,18 @@ declare n int; t int; ult numeric;
 begin
   select count(*), count(*) filter (where transferido_de is not null) into n, t
     from public.avanco_fisico_historico where obra_id = 'sirius60';
-  if n <> 18 or t <> 0 then
-    raise exception 'conversão gerou % retratos (% transferidos); esperado 18 e 0 em 08/10/2026: nada foi gravado', n, t;
+  if n <> 16 or t <> 0 then
+    raise exception 'conversão gerou % retratos (% transferidos); esperado 16 e 0 em 09/10/2026: nada foi gravado', n, t;
+  end if;
+  if exists (select 1 from public.avanco_fisico_historico where obra_id = 'sirius60' and codigo_eap = '15.1.4') then
+    raise exception 'ficou retrato da 15.1.4 (contenção não executada): nada foi gravado';
+  end if;
+  -- horas do último retrato de cada linha (11 linhas) = 1.431,0 h na simulação de 09/10/2026
+  select sum(u.hh_realizado) into ult from (select distinct on (codigo_eap, pavimento) hh_realizado
+      from public.avanco_fisico_historico where obra_id = 'sirius60'
+     order by codigo_eap, pavimento, semana_numero desc, data_lancamento desc, id desc) u;
+  if abs(ult - 1431.0) > 0.5 then
+    raise exception 'horas do último retrato somam % (esperado 1431,0): nada foi gravado', ult;
   end if;
   -- último % de cada serviço da fundação = o de antes (forma 50, armação 70, concretagem 50, escavação 60)
   if (select count(*) from (
@@ -177,8 +205,9 @@ select r.id, r.codigo_eap as material, r.data_lancamento, r.incremento_pct, v.se
   join public.orcamento_planejado o on o.obra_id = r.obra_id and o.codigo_eap = r.codigo_eap and o.pavimento = r.pavimento
   join public.orcamento_material_servico v on v.obra_id = r.obra_id and v.material_id = o.id
  where r.obra_id = 'sirius60' order by r.data_lancamento, r.id;
--- Conferência 3: avanço físico por horas (último % de cada linha × horas ÷ horas de produção) — deve dar 4,71%
--- no site (S11); aqui só as linhas medidas, sem a herança do material (essa o site calcula).
+-- Conferência 3: horas do último retrato de cada linha — deve dar 1.431,0 h (inclui 62,4 h da 1.1.6, que o site
+-- ignora). No site (S11) o avanço fica 4,65% = 2.253,2 h de 48.454,9 h: 1.368,6 h medidas + 884,6 h herdadas pelos
+-- materiais (essa herança o site calcula).
 select round(sum(u.hh_realizado), 1) as horas_medidas
   from (select distinct on (codigo_eap, pavimento) hh_realizado from public.avanco_fisico_historico
          where obra_id = 'sirius60' order by codigo_eap, pavimento, semana_numero desc, data_lancamento desc, id desc) u;

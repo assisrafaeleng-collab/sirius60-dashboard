@@ -87,8 +87,12 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   1-medicao-acumulada.sql), um retrato por linha de serviço (código + pavimento); vale o último até a semana (pode
   revisar para baixo). Sem a tabela, o site soma os incrementos antigos de avanco_fisico_realizado (fallback;
   lib/medicao-servidor.js). Na conversão, retrato de material vai para o serviço vinculado, mas na MESMA data vale o
-  do serviço (as 5 de 08/10 eram medições paralelas e foram absorvidas: 23 medições → 18 retratos, avanço igual).
+  do serviço (as 5 de 08/10 eram medições paralelas e foram absorvidas, avanço igual).
   Medição de 1.1.6 é ignorada (custo de tempo).
+  Contenção 15.1.4 (Externo) NÃO foi executada (Rafael, 09/10): as 2 medições dela (ids 4 e 36: 15% em 23/08 e +5%
+  em 30/09) ficam FORA da conversão (por id; continuam na tabela antiga e no backup). Resultado: 23 medições → 21 na
+  carga → 16 retratos. Em S11: avanço 4,71% → 4,65% (−30 h), valor agregado direto −R$ 40.000,00. Até o SQL rodar,
+  o site (fallback dos incrementos antigos) ainda conta a 15.1.4 em 20%.
 - Valor agregado (lib/valor-agregado.js, /api/painel): serviço = % × orçado; material = maior entre % herdado ×
   orçado e comprometido limitado ao orçado; locação (17) = pago limitado à verba; tempo (1.1.6 e 18) = verba ×
   dias decorridos ÷ dias da obra. Custo comprometido = pago até o fim da semana + a pagar (direto, não recorrente)
