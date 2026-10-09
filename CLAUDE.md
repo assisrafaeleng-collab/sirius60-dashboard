@@ -319,6 +319,28 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   produtividade do Pilotis (125,89 m³ em 6 diárias = 20,98 m³/diária) → 1,5252 Hh/m³ = 65 Hh. Ritmo atual com uma só
   medição: conta a partir do início planejado.
 
+## IPC, IDP e projeções de custo final (pedido 14E; decisões do Rafael, 09/10/2026)
+- Conta em lib/projecoes.js; cards e painel em components/Dashboard.jsx (3ª linha: "Projeções de custo final" + IPC no
+  modo Custos, + IDP no modo Avanço físico).
+- IPC = valor agregado ÷ custo comprometido (pago + a pagar), direto; o card usa o custo até a semana do filtro.
+- IDP principal = avanço físico realizado ÷ planejado (horas), como no Flats; IDP em valor (valor agregado ÷ planejado
+  da curva do direto) só como informação.
+- IDP, projeções e término: SEMPRE na semana da ÚLTIMA MEDIÇÃO (realizado e planejado da mesma semana; valor agregado,
+  custo e indireto também dessa semana). Semana do filtro posterior: aviso "sem medição desde Sxx — medir para
+  atualizar"; a projeção não muda até a próxima medição.
+- Cenários do direto: "O restante sai pelo orçamento" = comprometido + (orçado − valor agregado); "Mantém a eficiência
+  atual" = orçado ÷ IPC (aviso: pouco confiável com menos de 15% de avanço físico); "Pessimista (custo e prazo)" =
+  comprometido + (orçado − valor agregado) ÷ (IPC × IDP), IDP limitado a 1.
+- Indireto projetado = realizado + recorrentes até o fim (verba − planejado até a semana) + pontuais (verba −
+  realizado). Reserva 19.1.25 à parte (só o usado entra). Término: pelo adiantamento (principal, Flats) e pelo IDP.
+- PENDENTE: engenheiro (19.1.23), contabilidade, IPTU e despesas bancárias sem nenhum lançamento nos relatórios até
+  09/2026 — Rafael vai definir quem paga. Até lá, o planejado passado e não pago desses recorrentes fica fora da
+  projeção (nota discreta na memória do indireto).
+- Pontuais pagos em parte (19.1.1, 19.1.4, 19.1.12, 19.1.22): o restante AINDA SERÁ PAGO (Rafael vai informar os
+  valores); a projeção mantém o saldo da verba como "a pagar".
+- Memória do valor agregado (/custos-diretos): clique na linha mostra regra, origem do %, conta e custo; botão
+  "Baixar memória (CSV)" com todas as linhas.
+
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
 - Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 17 (o grupo 18 foi para o indireto
   como 19.1.25 no pedido 14A).

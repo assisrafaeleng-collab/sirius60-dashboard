@@ -8,6 +8,7 @@ import DiarioOcorrencias from './DiarioOcorrencias'
 import PontosAtencao from './PontosAtencao'
 import CustoPorGrupo from './CustoPorGrupo'
 import CurvaSCompleta from './CurvaSCompleta'
+import { calcularIndices, projetarIndireto, calcularProjecoes, terminoPorIdp } from '../lib/projecoes'
 
 export default function Dashboard({ semana, sessao, onSemana }) {
   const [d, setD] = useState(null)
@@ -45,6 +46,18 @@ export default function Dashboard({ semana, sessao, onSemana }) {
       .catch(e => setErro(e.message))
   }, [semana])
 
+  // IDP, projeções e término na semana da ÚLTIMA MEDIÇÃO (pedido 14E, Rafael 09/10): realizado e planejado da mesma
+  // semana; o IPC do card continua com o custo até a semana do filtro.
+  const ultMed = d ? d.kpis.ultima_semana_medida : null
+  const semMed = ultMed ? Math.min(semana, ultMed) : null
+  const [painelMed, setPainelMed] = useState(null)
+  useEffect(() => {
+    setPainelMed(null)
+    if (!semMed) return
+    fetch(`/api/painel?semana=${semMed}&linhas=0`).then(r => r.json())
+      .then(j => setPainelMed(j.error ? { erro: j.message || j.error } : j)).catch(e => setPainelMed({ erro: e.message }))
+  }, [semMed])
+
   if (erro) return (
     <div className="card">
       <div className="card-title">Não foi possível carregar</div>
@@ -73,7 +86,7 @@ export default function Dashboard({ semana, sessao, onSemana }) {
           avanço físico = horas executadas ÷ {Math.round(horasOrcadas || 0).toLocaleString('pt-BR')} h orçadas (parcela de produção)
         </span>
       </div>
-      <Kpis k={k} semana={semana} painel={painel} mostrar={mostrar} curva={d.semanas_alinhadas} />
+      <Kpis k={k} semana={semana} painel={painel} painelMed={painelMed} mostrar={mostrar} curva={d.semanas_alinhadas} />
       <div className="card">
         <div className="card-title">Curva S — físico e financeiro</div>
         <CurvaSCompleta semanas={d.semanas_alinhadas} semana={semana} ultimaMedicao={k.ultima_semana_medida} onPick={onSemana} />
@@ -141,6 +154,8 @@ const dmy = iso => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '—'
 const VERDE = CORES_VA.economia, VERMELHO = CORES_VA.estouro
 const PLAN = CORES_VA.agregado, REAL = CORES.realizado   // realizado = branco (pedido 13E)
 const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px', borderRadius: 6 }
+const fmtIdx = v => (v == null || !isFinite(v) ? '—' : v.toFixed(2).replace('.', ','))   // índices com 2 casas
+const pc2 = v => fmtPct(v, 2)
 
 // Adiantamento (Flats): curva = semanas_alinhadas (hh_planejado = curva do cronograma, hh_realizado = medições)
 function calcularAdiantamento(curva, semMedida) {
@@ -169,7 +184,7 @@ function calcularAdiantamento(curva, semMedida) {
   return { semanas, dias, real, wEq, termino, fim, semMed: semMedida }
 }
 
-function Kpis({ k, semana, painel, mostrar, curva }) {
+function Kpis({ k, semana, painel, painelMed, mostrar, curva }) {
   const router = useRouter()
   const [abrirAPagar, setAbrirAPagar] = useState(false)
   const [abrirProjecao, setAbrirProjecao] = useState(false)
@@ -280,8 +295,39 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
   const c11 = { l: `Projeções de custo final ${abrirProjecao ? '▴' : '▾'}`, v: fmt2(tot ? tot.orcado : null),
     onClick: () => setAbrirProjecao(v => !v), s: 'Orçado do custo direto · clique para ver as projeções' }
 
+  // IPC e IDP (pedido 14E, lib/projecoes.js). IDP principal = físico (horas), como no Flats; em valor, informação.
+  const ind = calcularIndices({ agregado, comprometido, planejadoDireto: k.custo_direto_planejado_ate, avancoReal, avancoPlan })
+  const cIpc = { l: 'IPC · desempenho de custo', v: fmtIdx(ind.ipc), c: ind.ipc == null ? REAL : ind.ipc >= 1 ? VERDE : VERMELHO,
+    s: ind.ipc == null ? (carregando || 'Sem medição')
+      : `${ind.ipc >= 1 ? 'Economia' : 'Estouro'} · cada R$ 1,00 gasto rendeu R$ ${fmtIdx(ind.ipc)} de serviço · até ${sRef}`,
+    cs: ind.ipc == null ? null : cor(ind.ipc - 1),
+    title: ind.ipc == null ? undefined : `IPC = valor agregado ÷ custo comprometido (pago + a pagar), custo direto\n` +
+      `= ${fmt2(agregado)} ÷ ${fmt2(comprometido)} = ${fmtIdx(ind.ipc)}\nAcima de 1: economia. Abaixo de 1: estouro.` }
+  // IDP, projeções e término na semana da ÚLTIMA MEDIÇÃO (Rafael 09/10): realizado e planejado da mesma semana
+  const pm = painelMed && !painelMed.erro ? painelMed : null
+  const sMedida = S2(semMedida)
+  const pontoMed = (curva || []).find(c => c.semana_numero === semMedida)
+  const indMed = pm && k.tem_medicao
+    ? calcularIndices({ agregado: pm.totais.agregado, comprometido: pm.totais.comprometido,
+        planejadoDireto: pontoMed ? pontoMed.financeiro_planejado : null, avancoReal: pm.avanco.realizado, avancoPlan: pm.avanco.planejado })
+    : { ipc: null, idp: null, idp_valor: null }
+  const avisoMed = k.ultima_semana_medida && semana > k.ultima_semana_medida ? `sem medição desde ${sMedida} — medir para atualizar` : null
+  const cIdp = { l: 'IDP · desempenho de prazo', v: fmtIdx(indMed.idp), c: indMed.idp == null ? REAL : indMed.idp >= 1 ? VERDE : VERMELHO,
+    s: indMed.idp == null ? (k.tem_medicao && !pm ? 'carregando…' : 'Sem medição')
+      : <>{indMed.idp >= 1 ? 'Adiantado' : 'Atrasado'} · avanço {pc2(pm.avanco.realizado)} ÷ {pc2(pm.avanco.planejado)} em {sMedida} (última medição)
+        <div>IDP em valor {fmtIdx(indMed.idp_valor)} (valor agregado ÷ planejado da curva)</div>
+        {avisoMed && <div style={{ color: 'var(--amber-tx)' }}>{avisoMed}</div>}</>,
+    cs: indMed.idp == null ? null : cor(indMed.idp - 1),
+    title: indMed.idp == null ? undefined :
+      `IDP = avanço físico realizado ÷ avanço físico planejado (horas; o mesmo do Flats), os dois na semana da última medição\n` +
+      `= ${pc2(pm.avanco.realizado)} ÷ ${pc2(pm.avanco.planejado)} = ${fmtIdx(indMed.idp)} (${sMedida})\n\n` +
+      `Informação — IDP em valor = valor agregado ÷ valor planejado acumulado da curva (direto), em ${sMedida}\n` +
+      `= ${fmt2(pm.totais.agregado)} ÷ ${fmt2(pontoMed ? pontoMed.financeiro_planejado : null)} = ${fmtIdx(indMed.idp_valor)}\n` +
+      `Acima de 1: adiantado. Abaixo de 1: atrasado.` }
+
   const linha1 = fisico ? [c1, c2, c3, c4f, c5f] : [c1, c2, c3, c4, c5]
   const linha2 = fisico ? [c6, c7, c8, c9f, c10f] : [c6, c7, c8, c9, c10]
+  const linha3 = fisico ? [c11, cIdp] : [c11, cIpc]
   const grade = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 16 }
 
   return (
@@ -290,11 +336,130 @@ function Kpis({ k, semana, painel, mostrar, curva }) {
       <div className="kpi-grid" style={{ ...grade, marginTop: -10 }}>{linha2.map(card)}</div>
       {!fisico && abrirAPagar && <ListaContas semana={semana} />}
       {abrirGrupos && <CustoPorGrupo semana={semana} />}
-      <div className="kpi-grid" style={{ ...grade, marginTop: -10 }}>{card(c11)}</div>
+      {/* linha 3: auto-fill mantém a largura dos cards de cima (5 colunas) */}
+      <div className="kpi-grid" style={{ ...grade, gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', marginTop: -10 }}>
+        {linha3.map(card)}
+      </div>
       {abrirProjecao && (
-        <div className="card"><div className="kpi-sub">Projeções no próximo pedido.</div></div>
+        <Projecoes semMed={semMedida} k={k} pm={pm} temMedicao={k.tem_medicao} indices={indMed} ipcFiltro={ind.ipc} sRef={sRef}
+          adiantamento={adiantamento} aviso={avisoMed} />
       )}
     </>
+  )
+}
+
+/* ─── PROJEÇÕES DE CUSTO FINAL (pedido 14E; lib/projecoes.js) ───────────────────
+   Três cenários do direto + indireto (realizado + planejado restante) = total da obra × orçamento; término pelo
+   adiantamento (o do Flats) e pelo IDP. Tudo na semana da ÚLTIMA MEDIÇÃO (Rafael 09/10): valor agregado, custo,
+   IPC, IDP e indireto da mesma semana — sem medição nova, a projeção não muda. Indireto da /api/indiretos. */
+const NOMES_CENARIO = {
+  otimista: 'O restante sai pelo orçamento',
+  tendencia: 'Mantém a eficiência atual',
+  pessimista: 'Pessimista (custo e prazo)',
+}
+const AVANCO_MIN_EFICIENCIA = 15   // % de avanço físico abaixo do qual "mantém a eficiência atual" é pouco confiável
+function Projecoes({ semMed, k, pm, temMedicao, indices, ipcFiltro, sRef, adiantamento, aviso }) {
+  const [indApi, setIndApi] = useState(null)
+  useEffect(() => {
+    setIndApi(null)
+    fetch(`/api/indiretos?semana=${semMed}`).then(r => r.json())
+      .then(j => setIndApi(j.error ? { erro: j.message || j.error } : j)).catch(e => setIndApi({ erro: e.message }))
+  }, [semMed])
+  if (!temMedicao) return <div className="card"><div className="kpi-sub">Sem medição: sem IPC e IDP, não há projeção.</div></div>
+  if (!pm) return <div className="card"><div className="kpi-sub">Carregando…</div></div>
+  const tot = pm.totais
+  const indireto = indApi && !indApi.erro ? projetarIndireto(indApi.categorias) : null
+  const p = calcularProjecoes({ orcadoDireto: tot.orcado, agregado: tot.agregado, comprometido: tot.comprometido,
+    indices, indireto, orcamentoTotal: k.orcamento_total })
+  const sMed = S2(semMed)
+  const inicio = datasDaSemana(1).data_inicio
+  const fim = OBRA.fim_planejado
+  const tIdp = terminoPorIdp(inicio, fim, indices.idp)
+  const poucoAvanco = pm.avanco.realizado < AVANCO_MIN_EFICIENCIA
+  const mono = { fontFamily: 'var(--mono)', textAlign: 'right' }
+  const corSaldo = v => v == null ? 'var(--text2)' : v >= 0 ? VERDE : VERMELHO
+  const saldoTxt = (v, pct) => v == null ? '—' : `${v >= 0 ? 'saldo' : 'estouro'} ${fmt2(Math.abs(v))}${pct == null ? '' : ` (${pc2(Math.abs(pct))})`}`
+  const AVISO_EF = `pouco confiável com menos de ${AVANCO_MIN_EFICIENCIA}% de avanço físico`
+  const memoria = p && {
+    otimista: `comprometido + (orçado − valor agregado) = ${fmt2(p.comprometido)} + (${fmt2(p.orcado_direto)} − ${fmt2(p.agregado)}) = ${fmt2(p.cenarios.otimista.direto)}`,
+    tendencia: `orçado ÷ IPC = ${fmt2(p.orcado_direto)} ÷ ${fmtIdx(p.ipc)} = ${fmt2(p.cenarios.tendencia.direto)} · o que falta segue a eficiência de hoje`,
+    pessimista: `comprometido + (orçado − valor agregado) ÷ (IPC × IDP) = ${fmt2(p.comprometido)} + ${fmt2(p.falta)} ÷ (${fmtIdx(p.ipc)} × ${fmtIdx(p.idp_pessimista)}) = ${fmt2(p.cenarios.pessimista.direto)}` +
+      (p.idp > 1 ? ` · IDP real ${fmtIdx(p.idp)} limitado a 1 (adiantamento não barateia a obra)` : ' · custo e prazo pesam juntos'),
+  }
+  return (
+    <div className="card">
+      <div className="card-title">Projeções de custo final · base {sMed} (última medição)</div>
+      {aviso && <div className="kpi-sub" style={{ color: 'var(--amber-tx)', marginBottom: 8 }}>{aviso} · a projeção fica na {sMed} até a próxima medição</div>}
+      {!p ? <div className="kpi-sub">Sem IPC ou IDP em {sMed}: não há projeção.</div> : <>
+        <div className="kpi-sub" style={{ marginBottom: 12, lineHeight: 1.7 }}>
+          Tudo em {sMed}: IPC <b>{fmtIdx(p.ipc)}</b> (valor agregado {fmt2(p.agregado)} ÷ comprometido {fmt2(p.comprometido)}) ·
+          IDP <b>{fmtIdx(p.idp)}</b> (avanço físico {pc2(pm.avanco.realizado)} ÷ {pc2(pm.avanco.planejado)}; o Flats usa este) ·
+          IDP em valor {fmtIdx(indices.idp_valor)} (informação) · falta executar {fmt2(p.falta)} a preço de orçamento
+          {ipcFiltro != null && sRef !== sMed && <> · o card IPC usa o custo até {sRef} ({fmtIdx(ipcFiltro)})</>}
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Cenário</th><th style={{ textAlign: 'right' }}>Custo direto</th><th style={{ textAlign: 'right' }}>Direto × orçado</th>
+              <th style={{ textAlign: 'right' }}>Indireto</th><th style={{ textAlign: 'right' }}>Total da obra</th>
+              <th style={{ textAlign: 'right' }}>Total × orçamento ({fmt2(p.orcamento_total)})</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Object.keys(NOMES_CENARIO).map(c => {
+              const x = p.cenarios[c]
+              return (
+                <tr key={c}>
+                  <td style={{ fontWeight: 600 }}>
+                    {NOMES_CENARIO[c]}
+                    {c === 'tendencia' && poucoAvanco && <div style={{ fontWeight: 500, fontSize: 11, color: 'var(--amber-tx)' }}>{AVISO_EF}</div>}
+                  </td>
+                  <td style={mono}>{fmt2(x.direto)}</td>
+                  <td style={{ ...mono, color: corSaldo(x.saldo_direto) }}>{saldoTxt(x.saldo_direto, 100 * x.saldo_direto / p.orcado_direto)}</td>
+                  <td style={mono}>{indireto ? fmt2(p.indireto) : (indApi && indApi.erro ? 'indisponível' : 'carregando…')}</td>
+                  <td style={{ ...mono, fontWeight: 600 }}>{x.total == null ? '—' : fmt2(x.total)}</td>
+                  <td style={{ ...mono, color: corSaldo(x.saldo_total) }}>{saldoTxt(x.saldo_total, x.saldo_total_pct)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <div className="form-section-title" style={{ margin: '16px 0 6px' }}>Memória das contas (custo direto, orçado {fmt2(p.orcado_direto)})</div>
+        <div className="kpi-sub" style={{ lineHeight: 1.8 }}>
+          {Object.keys(NOMES_CENARIO).map(c => <div key={c}><b>{NOMES_CENARIO[c]}</b>: {memoria[c]}
+            {c === 'tendencia' && poucoAvanco && <span style={{ color: 'var(--amber-tx)' }}> · {AVISO_EF} (hoje {pc2(pm.avanco.realizado)})</span>}</div>)}
+        </div>
+        {indireto && <>
+          <div className="form-section-title" style={{ margin: '16px 0 6px' }}>Custo indireto (igual nos três cenários)</div>
+          <div className="kpi-sub" style={{ lineHeight: 1.8 }}>
+            <div>realizado (pago + a pagar) {fmt2(indireto.realizado)} + recorrentes até o fim {fmt2(indireto.restante_recorrente)} +
+              pontuais a pagar {fmt2(indireto.restante_pontual)} = <b>{fmt2(indireto.projecao)}</b>
+              {' '}(verba sem a reserva {fmt2(indireto.verba_sem_reserva)})</div>
+            <div>Recorrente: verba − planejado até {sMed} (diluído pelos dias até o fim). Pontual: verba − realizado; o saldo de
+              quem foi pago em parte ainda será pago (Rafael, 09/10).{' '}
+              {indireto.itens.filter(i => i.regra.startsWith('pontual') && i.restante > 0.005)
+                .map(i => `${i.codigo_eap} ${fmt2(i.restante)}${i.realizado > 0.005 ? ' (pago em parte)' : ''}`).join(' · ')}</div>
+            {indireto.reserva_verba > 0 && <div>Reserva, se houver necessidade (19.1.25): {fmt2(indireto.reserva_verba)} ·
+              usado {fmt2(indireto.reserva_usada)} (já no realizado) · livre {fmt2(indireto.reserva_livre)}, fora da projeção e
+              dentro do saldo do total.</div>}
+            <div style={{ fontSize: 11, opacity: .8 }}>Pendente: engenheiro (19.1.23), contabilidade, IPTU e despesas bancárias sem
+              nenhum lançamento nos relatórios até 09/2026 — Rafael vai definir quem paga. O planejado que já passou e não foi
+              pago fica fora da projeção.</div>
+          </div>
+        </>}
+        <div className="form-section-title" style={{ margin: '16px 0 6px' }}>Término projetado (cronograma: {dmy(fim)})</div>
+        <div className="kpi-sub" style={{ lineHeight: 1.8 }}>
+          <div><b>Pelo adiantamento</b> (o que o Flats usa; card "Adiantamento"):{' '}
+            {adiantamento ? <>{dmy(adiantamento.termino)} · {adiantamento.semanas >= 0 ? 'adiantado' : 'atrasado'} {Math.abs(adiantamento.dias)} dias
+              ({adiantamento.semanas.toFixed(2).replace('.', ',')} semanas): a curva planejada chega ao realizado de {S2(adiantamento.semMed)} na
+              S{adiantamento.wEq.toFixed(2).replace('.', ',')}</> : 'sem medição'}</div>
+          <div><b>Pelo IDP</b> (informação): {tIdp ? <>{dmy(tIdp.termino)} · duração {tIdp.duracao_dias} dias ÷ IDP {fmtIdx(indices.idp)} =
+            {' '}{tIdp.duracao_projetada} dias ({tIdp.dias >= 0 ? '+' : ''}{tIdp.dias} dias), contados de {dmy(inicio)}</> : 'sem IDP'}</div>
+          <div>Os dois na semana da última medição ({sMed}). O adiantamento compara onde a obra está com a curva; o IDP supõe
+            que o ritmo relativo de hoje vale para a obra toda, por isso pesa mais no começo.</div>
+        </div>
+      </>}
+    </div>
   )
 }
 

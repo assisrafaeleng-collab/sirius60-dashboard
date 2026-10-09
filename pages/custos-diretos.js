@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import React, { useEffect, useMemo, useState } from 'react'
 import { OBRA, fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, semanaLabel, semanaAtualObra, semanasPorMes, rotuloPavimento } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
-import { PLAN, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar, ResumoVerbaForma } from '../components/ValorCusto'
+import { PLAN, VERDE, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar, ResumoVerbaForma } from '../components/ValorCusto'
 
 // Memória de cálculo do valor agregado (pedido 13C): layout, cores, formato e textos da /valor-agregado do Flats.
 // Uma tabela única, grupo → linhas (código + pavimento). Números da /api/painel (lib/valor-agregado.js):
@@ -86,6 +86,65 @@ const tituloMedido = (i) => i.material_comprado
   : i.tipo === 'material' ? `Material sem medição própria: usa o % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)}${h.peso < 1 ? ` (peso ${fmtP(h.peso * 100)})` : ''}`).join(' + ')}; ou o custo pago + a pagar até o orçado, se for maior`
   : ''
 
+// Memória de cálculo de uma linha (pedido 14E): regra, de onde veio o %, a conta e o custo. Também vira o CSV.
+const ddmm = (s) => (s ? `${s.slice(8, 10)}/${s.slice(5, 7)}` : '')
+const pct2 = (v) => (v == null ? '—' : `${Number(v).toFixed(2).replace('.', ',')}%`)
+const servicoTxt = (h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)} em ${pct2(h.percentual)}` +
+  (h.semana_medida ? ` (medição de ${ddmm(h.data_medida) || s2(h.semana_medida)})` : ' (sem medição)') +
+  (h.peso < 1 ? ` × peso ${pct2(h.peso * 100)}` : '')
+function memoriaDaLinha(i, av) {
+  const her = (i.herda_de || []).map(servicoTxt).join(' + ')
+  if (i.tipo === 'tempo') return { regra: 'custo de tempo linear', origem: `% do prazo decorrido: ${av.dias_decorridos} de ${av.dias_obra} dias`,
+    pct: i.perc_real, conta: `${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.agregado)}` }
+  if (i.tipo === 'locacao') return { regra: 'verba / locação neutra', origem: 'pago ÷ verba (valor agregado = pago, limitado à verba)',
+    pct: i.perc_verba, conta: `mínimo entre pago ${fmtMoeda(i.pago)} e verba ${fmtMoeda(i.orcado)} = ${fmtMoeda(i.agregado)}` }
+  if (i.verba_forma) return { regra: 'verba de forma rateada', origem: `serviço vinculado ${her || '—'}`, pct: i.perc_real,
+    conta: `${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.agregado)} (sem compra antecipada); custo = ` +
+      `${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba de forma` }
+  if (i.tipo === 'material') return {
+    regra: i.material_comprado ? 'material: compra antecipada' : `material herdado do serviço ${(i.herda_de || []).map((h) => h.codigo_eap).join(' + ')}`,
+    origem: `serviço vinculado ${her || '—'}`, pct: i.perc_real,
+    conta: i.material_comprado
+      ? `maior entre herdado ${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.heranca)} e custo até o orçado ${fmtMoeda(Math.min(i.comprometido, i.orcado))} = ${fmtMoeda(i.agregado)}`
+      : `${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.agregado)} (maior que o custo até o orçado, ${fmtMoeda(Math.min(i.comprometido, i.orcado))})` }
+  return { regra: 'serviço por medição',
+    origem: i.semana_medida ? `medição de ${ddmm(i.data_medida) || '—'} (${s2(i.semana_medida)})` : 'sem medição (0%)',
+    pct: i.perc_real, conta: `${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.agregado)}` }
+}
+function baixarCsv(p, semana) {
+  const n = (v) => (Number(v) || 0).toFixed(2).replace('.', ',')
+  const q = (t) => `"${String(t == null ? '' : t).replace(/"/g, '""')}"`
+  const cab = ['Código', 'Pavimento', 'Descrição', 'Regra', 'Origem do %', '%', 'Orçado', 'Valor agregado', 'Pago', 'A pagar']
+  const linhas = p.linhas.map((i) => {
+    const m = memoriaDaLinha(i, p.avanco)
+    return [q(i.codigo_eap), q(rotuloPavimento(i.pavimento, i.codigo_eap)), q(i.descricao), q(m.regra), q(m.origem),
+      m.pct == null ? '' : n(m.pct), n(i.orcado), n(i.agregado), n(i.pago), n(i.a_pagar)].join(';')
+  })
+  const blob = new Blob(['﻿' + [cab.map(q).join(';'), ...linhas].join('\r\n')], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `memoria-valor-agregado-${s2(semana)}.csv`
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+}
+function Memoria({ i, av }) {
+  const m = memoriaDaLinha(i, av)
+  const custo = i.pago + i.a_pagar
+  const est = custo - i.agregado
+  return (
+    <div style={{ padding: '8px 12px 12px 70px', background: 'var(--bg3)', borderBottom: '1px solid var(--border)',
+      font: "500 12px 'IBM Plex Sans'", color: 'var(--text2)', lineHeight: 1.7 }}>
+      <div><b style={{ color: 'var(--text)' }}>Regra:</b> {m.regra}</div>
+      <div><b style={{ color: 'var(--text)' }}>% usado:</b> {pct2(m.pct)} · {m.origem}</div>
+      <div><b style={{ color: 'var(--text)' }}>Valor agregado:</b> {m.conta}</div>
+      <div><b style={{ color: 'var(--text)' }}>Custo:</b> pago {fmtMoeda(i.pago)} + a pagar {fmtMoeda(i.a_pagar)} = {fmtMoeda(custo)}
+        {' · '}<span style={{ color: Math.abs(est) < 0.005 ? undefined : est > 0 ? VERMELHO : VERDE }}>
+          {Math.abs(est) < 0.005 ? 'sem estouro nem economia' : est > 0 ? `estouro ${fmtMoeda(est)}` : `economia ${fmtMoeda(-est)}`}
+        </span> (custo − valor agregado)</div>
+    </div>
+  )
+}
+
 export default function ValorAgregado() {
   const router = useRouter()
   const [semana, setSemana] = useState(semanaAtualObra())
@@ -94,6 +153,7 @@ export default function ValorAgregado() {
   const [busca, setBusca] = useState('')
   const [mostrarZerados, setMostrarZerados] = useState(false)
   const [abertos, setAbertos] = useState(() => new Set())   // grupos abertos; começa tudo recolhido
+  const [memoria, setMemoria] = useState(null)              // id da linha com a memória aberta (pedido 14E)
 
   useEffect(() => {
     if (router.query.semana) setSemana(parseInt(router.query.semana) || semanaAtualObra())
@@ -209,9 +269,12 @@ export default function ValorAgregado() {
                 <button className="btn-sm" onClick={() => setMostrarZerados((v) => !v)}>
                   {mostrarZerados ? 'Ocultar itens não iniciados' : 'Mostrar itens não iniciados'}
                 </button>
+                <button className="btn-sm" onClick={() => baixarCsv(p, semana)} title="Todas as linhas do custo direto, com a regra e a origem do %">
+                  Baixar memória (CSV)
+                </button>
                 <span style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text2)' }}>
                   Valor agregado = orçado da linha × % físico · <i>tempo</i>: verba linear pela obra · <i>herda</i>: material sem
-                  medição, usa o % do serviço vinculado · <i>compra antecipada</i>: material comprado antes da execução, agregado =
+                  medição, usa o % do serviço vinculado · clique numa linha para ver a memória de cálculo · <i>compra antecipada</i>: material comprado antes da execução, agregado =
                   custo pago + a pagar até o orçado · <i>verba</i>: locação, gasto até o orçado · <i>a pagar</i>: contas a pagar do
                   último fechamento{p.contas.fechamento ? ` (${p.contas.fechamento})` : ''} · estouro / economia = (pago + a pagar) −
                   valor agregado · saldo da verba = orçado − pago − a pagar · % orç. = (pago + a pagar) ÷ orçado
@@ -250,7 +313,8 @@ export default function ValorAgregado() {
                         const semExec = !(i.agregado > 0.005)
                         const estouroPago = i.pago > i.agregado + 0.005 && i.agregado > 0
                         return (
-                          <Linha key={i.id}>
+                          <React.Fragment key={i.id}>
+                          <Linha onClick={() => setMemoria((m) => (m === i.id ? null : i.id))} title="Clique para ver a memória de cálculo">
                             <div style={{ color: 'var(--text2)' }}>{i.codigo_eap}</div>
                             <div>{i.descricao}</div>
                             <div style={{ color: 'var(--text2)', fontSize: 11 }}>{rotuloPavimento(i.pavimento, i.codigo_eap) || '—'}</div>
@@ -267,6 +331,8 @@ export default function ValorAgregado() {
                               neutro={i.material_comprado || i.tipo === 'locacao'} />
                             <Saldo orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
                           </Linha>
+                          {memoria === i.id && <Memoria i={i} av={p.avanco} />}
+                          </React.Fragment>
                         )
                       })}
                       {estaAberto(`g${g.grupo}`) && g.zerados > 0 && (
