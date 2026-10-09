@@ -8,6 +8,7 @@ begin
   if to_regclass('public.orcamento_horas_bkp_20261009') is null then raise exception 'backup do passo 7 não existe: nada foi feito'; end if;
 end $$;
 update public.orcamento_planejado o set hh = b.hh from public.orcamento_horas_bkp_20261009 b where o.id = b.id;
+drop table if exists public.orcamento_horas_janela;
 do $$
 declare t numeric;
 begin

@@ -2,7 +2,9 @@ import { supabase, supabasePronto } from '../../lib/supabase'
 import { carregarCalendario } from '../../lib/calendario-servidor'
 import { calendario } from '../../lib/calendario'
 import { OBRA } from '../../lib/constants'
-import { montarPainel } from '../../lib/painel-servidor'
+import { montarPainel, carregarContas } from '../../lib/painel-servidor'
+import { carregarMedicoes } from '../../lib/medicao-servidor'
+import { lerIndiretosPlanejados } from '../../lib/indiretos-servidor'
 import { naoExiste } from '../../lib/medicao-servidor'
 import { senhaOk } from '../../lib/senha-servidor'
 import { montarPontosAtencao, JORNADA_PADRAO, FERIADOS_NACIONAIS } from '../../lib/pontos-atencao'
@@ -14,7 +16,7 @@ import { montarPontosAtencao, JORNADA_PADRAO, FERIADOS_NACIONAIS } from '../../l
 // POST { orcamento_id, campo: 'indice' | 'equipes' | 'equipe', valor, quem } — grava a edição feita na tela. Exige a
 //   senha da obra (x-dashboard-senha = SENHA_MEDICAO); chave secreta só aqui no servidor. Toda alteração vai para
 //   planejamento_historico (valor anterior e novo, quem e quando).
-const BASE_IX = 'orcamento_id, codigo_eap, pavimento, regra, hh_por_unidade, horas_total, origem, hh_cronograma, conferir, tipo_equipe, observacao'
+const BASE_IX = 'orcamento_id, codigo_eap, pavimento, regra, hh_por_unidade, horas_total, origem, hh_cronograma, conferir, tipo_equipe, observacao, unidade'
 const EDICAO_IX = ', equipes_definidas, equipe_oficiais, equipe_ajudantes, equipe_funcao, editado_por, editado_em'
 
 async function ler(tabela, campos) {
@@ -89,7 +91,7 @@ export default async function handler(req, res) {
       const sem = await ler('indice_produtividade', BASE_IX)        // tabela sem as colunas do passo 2 (ou sem tabela)
       return { linhas: sem, edicao: false }
     }
-    const [painel, ind, eqs, prz, jor, fer, hist] = await Promise.all([
+    const [painel, ind, eqs, prz, jor, fer, hist, med, contas, indPlan] = await Promise.all([
       montarPainel(supabase, S),
       lerIndices(),
       ler('equipe_padrao', 'tipo, nome, composicao, pessoas'),
@@ -97,6 +99,9 @@ export default async function handler(req, res) {
       ler('obra_jornada', 'horas_dia, dias_semana'),
       ler('obra_feriados', 'data, descricao'),
       ler('planejamento_historico', 'orcamento_id, campo, valor_anterior, valor_novo, editado_por, editado_em'),
+      carregarMedicoes(supabase),                                      // ritmo atual (1ª e última medição)
+      carregarContas(supabase, cal.semanas[S - 1].data_fim),           // caixa: contas a pagar lançadas
+      lerIndiretosPlanejados(supabase, 'codigo_eap, categoria, valor_total, recorrente, semana_desembolso, semana_fim'),
     ])
     const indices = {}
     ;(ind.linhas || []).forEach((i) => { indices[Number(i.orcamento_id)] = i })
@@ -110,6 +115,7 @@ export default async function handler(req, res) {
     const out = montarPontosAtencao({
       linhas: painel.linhas, semanas: cal.semanas, semana: S, indices, equipes, prazos: prz || [], jornada, feriados,
       curva: cal.curva, configurado,
+      medicoes: med.retratos, contas: contas.linhas || [], indiretos: indPlan,
       // adiantamento (compras pela data projetada): realizado na medição e a semana da última medição
       avanco: { realizado: painel.avanco.realizado,
         semana_medida: painel.linhas.reduce((m, l) => Math.max(m, l.semana_medida || 0), 0) || null },

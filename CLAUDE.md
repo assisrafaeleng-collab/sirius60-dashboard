@@ -276,13 +276,41 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   /api/pontos-atencao com SENHA_MEDICAO, confirmação na página, histórico em planejamento_historico
   (supabase/planejamento/2-edicao-no-site.sql: equipes_definidas, equipe_oficiais/ajudantes/funcao, editado_por/em,
   origem 'rafael-site').
+- Grupos, datas e caixa (pedido 14D): nas 3 abas as atividades ficam dentro do GRUPO do orçamento (recolhido; na
+  Estrutura, por pavimento se houver mais de um), com nº de atividades, maior atraso, equipes, fim planejado, fim no
+  ritmo atual e caixa do período. DATAS por atividade: planejado (início → fim) · no ritmo atual (% concluído ÷ dias
+  úteis desde a 1ª medição — com uma só, desde o início planejado — até a última; fim = última + falta ÷ ritmo) · com
+  N equipes. Sem medição: "não iniciada" / "deveria ter começado em".
+- CAIXA (Rafael 09/10): % a executar no período (cronograma no fim do período − concluído; com equipes definidas, o que
+  elas concluem) × (orçado do serviço + orçado dos materiais vinculados), descontando material comprado além do
+  executado (verba de forma: o excesso da verba inteira abate o material de forma, em ordem de término). Topo: caixa da
+  semana e de 30 dias = serviços + materiais + contas a pagar lançadas com vencimento no período + indiretos recorrentes
+  (planejado); ao lado, em cinza, a curva do cronograma. Premissa: valor do serviço executado; prazos de pagamento de
+  fornecedores ainda não considerados. Painel e equipes usam só linhas de serviço; materiais entram no caixa.
+- Regras do caixa (Rafael 09/10): conta a pagar entra se o VENCIMENTO cai dentro do período; vencido antes do período
+  = considerado pago, não entra (ex.: Betonita 616, venc. 08/10). Indiretos: recorrentes (19.1.18, 19.1.21, 19.1.23,
+  19.1.24; a reserva 19.1.25 fica fora) + pontuais planejados DENTRO do período (pelo mês previsto); pontual planejado
+  antes e não pago não entra. Composição do caixa por GRUPO (recolhido, com itens), depois contas a pagar, 19 Indiretos,
+  TOTAL e, em cinza, a curva do cronograma; a regra fica escrita no fim da composição.
 - Contenção 15.1.4 (Externo) não executada: início empurrado para S16 (09/11/2026), mesma duração (11 semanas, até
   S26) e mesmas 150 h / R$ 200.000 (supabase/semanas/4-contencao-reprogramada.sql; total da curva não muda).
 - Estrutura do Pilotis (Rafael, fase 3): está orçada no subgrupo 3.1 (SUBSOLO - VIGAS-PILARES-LAJE PILOTIS + PISO
   POLIDO). As linhas 3.1.x já têm as horas da atividade "Estrutura SUB-SOLO" do cronograma (2.689,4 h); a 3.0.1 tem
   as de "Estrutura PILOTIS" (1.305 h) — não duplica no banco. SQL escrito, NÃO rodado: supabase/orcamento/
-  7-pilotis-horas.sql (1.305 h nas linhas de serviço 3.1.x com índice, pelo índice × quantidade; 60,1 h da 4.0.9 nas
-  13 linhas de verga/encunhamento pelas horas; 3.0.1 e 4.0.9 ficam com 0 h; total 48.454,9 h igual).
+  7-pilotis-horas.sql: as 1.305 h vão para as 6 linhas de SERVIÇO do 3.1 na proporção das horas REAIS (Rafael 09/10:
+  armação 501,7 / forma 2.301,1 / lançamento 192 / piso polido 16 / escada 80 / laje treliçada 160 = 3.250,8 Hh);
+  60,1 h da 4.0.9 nas 13 linhas de verga/encunhamento pelas horas; 3.0.1 e 4.0.9 ficam com 0 h; total 48.454,9 h
+  igual; materiais do 3.1 não mudam. O painel usa as horas REAIS (índice × quantidade) para equipes e término.
+  As horas transferidas ficam na JANELA DE ORIGEM (tabela nova orcamento_horas_janela: 3.0.1 → S10–S18 "Estrutura
+  Pilotis" do cronograma; 4.0.9 → S88–S90): o planejado linha a linha não muda e a curva_s_semanal_planejada também não.
+  O site soma o planejado das duas janelas de cada linha (lib/valor-agregado.js e lib/pontos-atencao.js).
+- Índices da estrutura (Rafael 09/10; supabase/planejamento/3-indices-estrutura.sql): lançamento em diária = 1 dia de
+  1 pedreiro + 3 ajudantes = 32 Hh/diária (quantidade do orçamento; diárias já com folga); laje treliçada (MO +
+  material) 0,5644 Hh/m² (2 oficiais + 2 ajudantes fazem 283,5 m² em 5 dias = 160 Hh), equipe nova "laje_trelicada";
+  escada 80 Hh (5 diárias de 1 oficial + 1 ajudante; o valor do orçamento não muda); piso polido 16 Hh. Unidades
+  corrigidas na tabela de índices (o orçamento não muda): 3.4.11 laje = m²; 3.5.4 = 6 diárias; 3.7.4 (42,57 m³) pela
+  produtividade do Pilotis (125,89 m³ em 6 diárias = 20,98 m³/diária) → 1,5252 Hh/m³ = 65 Hh. Ritmo atual com uma só
+  medição: conta a partir do início planejado.
 
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
 - Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 17 (o grupo 18 foi para o indireto
