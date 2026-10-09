@@ -5,6 +5,7 @@ import { datasDaSemana } from '../lib/calendario'
 import MapaPavimentos from './MapaPavimentos'
 import FisicoPorAtividade from './FisicoPorAtividade'
 import DiarioOcorrencias from './DiarioOcorrencias'
+import PontosAtencao from './PontosAtencao'
 import CustoPorGrupo from './CustoPorGrupo'
 import CurvaSCompleta from './CurvaSCompleta'
 
@@ -80,6 +81,7 @@ export default function Dashboard({ semana, sessao, onSemana }) {
       {fisico && <FisicoPorAtividade itens={itens} medido={med} semana={semana} base={base} />}
       {fisico && <MapaPavimentos itens={itens} medido={med} semana={semana} base={base} />}
       <DiarioOcorrencias sessao={sessao} itens={itens} />
+      <PontosAtencao semana={semana} />
     </>
   )
 }

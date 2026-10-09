@@ -235,6 +235,47 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   Betonita 616 29.620,00 (direto, não recorrente) + CEMIG 202,58 (recorrente). Custo direto a pagar = 48.956,12.
 - Implementação da regra da data: data de baixa vazia OU data de baixa > último dia do fechamento.
 
+## Painel "Pontos de atenção" (pedido 14B; decisões do Rafael, 09/10/2026)
+- REGRA DE OURO: não inventar índice, equipe ou prazo. Faltou → "dado pendente" e lista para o Rafael.
+- Painel na Visão geral abaixo do Diário de ocorrências (components/PontosAtencao.jsx, /api/pontos-atencao, conta em
+  lib/pontos-atencao.js). Horizontes: próxima semana e próximos 30 dias a partir do fim da semana do filtro; compras
+  de prazo longo olham a obra toda. Sem as tabelas novas: "configure as tabelas", jornada padrão, resto pendente.
+- Jornada: 8 h/dia, segunda a sexta, NÃO trabalha sábado (Rafael, fase 3); feriados nacionais oficiais (Carnaval e
+  Corpus Christi são ponto facultativo: fora) + municipais de Mariana CONFIRMADOS pelo Rafael (09/10): 16/07 (aniversário
+  da cidade) e 08/12 — na carga: 08/12/2026, 16/07/2027, 08/12/2027, 16/07/2028 (24 feriados na obra_feriados).
+- Índice de produtividade (Hh/unidade), nesta ordem: (a) cronograma, quando a atividade do cronograma tem um código só
+  do orçamento (horas da linha ÷ quantidade); (b) quando o cronograma agrupa códigos, índice da CPU do FLATS (aba CPU
+  da planilha oficial é a do Flats; o Rafael autorizou) por serviço: armação CPU 3.1.3 (Hh/kg), forma 3.1.5 (Hh/m²),
+  lançamento 3.1.2 (Hh/m³); demais pela descrição; ao lado, o que daria pelo cronograma e "conferir" se diferir > 50%;
+  (c) sem índice ou unidade diferente (diária × m³ etc.) → pendente. Não escolher sozinho quando houver conflito.
+- Índices do RAFAEL (valem para TODAS as linhas do tipo, fundação e pavimentos; substituem cronograma e CPU), em Hh por
+  unidade (soma das horas de todas as pessoas). Armação: 175 kg/dia por equipe de 2 × 8 h = 16 Hh/dia → 0,0914 Hh/kg.
+  Forma: 9,96 m²/dia por equipe de 2 × 8 h → 1,606 Hh/m² (Rafael 09/10, valores reais; substituem 0,18 e 2,0).
+  Gesso 0,6 Hh/m²; pintura 0,275 Hh/m².
+- Serviços por DURAÇÃO (horas fixas da linha): escada 80 Hh por escada (1 oficial + 1 ajudante, 5 dias úteis,
+  concretagem 1 dia); piso polido 16 Hh por linha; cobertura 1 mês (dias úteis do mês × 16 Hh, repartidas pelas
+  horas das linhas 9.1.1, 9.1.3–9.1.5); canteiro 320 Hh (1.1.1–1.1.5) e limpeza final 320 Hh (15.1.2), 2 ajudantes ×
+  20 dias; urbanização 64 Hh (15.1.1 e 15.1.3). Concretagem dos pavimentos: quantidade = m³ do concreto vinculado;
+  CPU do Flats 1,5 Hh/m³ só se coerente com o cronograma — hoje diverge (> 50%): pendente.
+- Equipes padrão: escavação 1 tubuleiro + 1 ajudante; armação 1 armador + 1 ajudante; forma 1 carpinteiro + 1
+  ajudante; concretagem 1 pedreiro + 3 ajudantes; alvenaria/reboco/piso 1 pedreiro + 1 ajudante; impermeabilização
+  1 impermeabilizador + 1 ajudante; gesso, pintura, piso polido, cobertura, urbanização e escada 1 oficial + 1
+  ajudante; canteiro e limpeza 2 ajudantes. Capacidade = pessoas × 8 h × dias úteis. Linha sem tipo → "equipe
+  pendente" só quando entra no horizonte.
+- Prazos de compra RELATIVOS: elevador 15 meses (456 dias); janelas e esquadrias, portas Blindex, portas de madeira,
+  granitos, louças e metais, portões, corrimão, alçapão e ecogranito 45 dias; central de GLP no último mês da obra.
+  A data de necessidade é a PROJETADA: início planejado deslocado pelo adiantamento/atraso da obra (mesmo cálculo do
+  card "Adiantamento"); pedir até = projetada − prazo; recalcula a cada medição (por frente/pavimento: ainda não).
+- Tabelas (supabase/planejamento/1-tabelas-pontos-atencao.sql): equipe_padrao, indice_produtividade (por id da linha),
+  insumo_prazo_entrega, obra_jornada, obra_feriados — RLS, sem grant.
+- Contenção 15.1.4 (Externo) não executada: início empurrado para S16 (09/11/2026), mesma duração (11 semanas, até
+  S26) e mesmas 150 h / R$ 200.000 (supabase/semanas/4-contencao-reprogramada.sql; total da curva não muda).
+- Estrutura do Pilotis (Rafael, fase 3): está orçada no subgrupo 3.1 (SUBSOLO - VIGAS-PILARES-LAJE PILOTIS + PISO
+  POLIDO). As linhas 3.1.x já têm as horas da atividade "Estrutura SUB-SOLO" do cronograma (2.689,4 h); a 3.0.1 tem
+  as de "Estrutura PILOTIS" (1.305 h) — não duplica no banco. SQL escrito, NÃO rodado: supabase/orcamento/
+  7-pilotis-horas.sql (1.305 h nas linhas de serviço 3.1.x com índice, pelo índice × quantidade; 60,1 h da 4.0.9 nas
+  13 linhas de verga/encunhamento pelas horas; 3.0.1 e 4.0.9 ficam com 0 h; total 48.454,9 h igual).
+
 ## Regras de negócio (resumo; detalhes no documento de continuidade do Flats)
 - Custo do mês = títulos pagos no mês. Indireto = grupo 19; direto = grupos 1 a 17 (o grupo 18 foi para o indireto
   como 19.1.25 no pedido 14A).
