@@ -114,8 +114,18 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   VERBA_FORMA_IDS: 2.1.3, 2.1.11, 3.1.6, 3.1.9, 3.2.6, 3.2.9, 3.3.6, 3.3.8, 3.4.5 [id 720], 3.4.8, 3.5.6, 3.6.6, 3.7.6).
   Custo: o pago + a pagar de qualquer uma delas é o gasto da verba, e cada linha mostra gasto × (orçado ÷ verba); os
   lançamentos continuam gravados na linha original (só cálculo/tela; nível 3 com a nota "verba de forma rateada").
-  Valor agregado: % do serviço vinculado × orçado, SEM compra antecipada. Material comprado à frente aparece como
-  estouro até o serviço avançar (dica na tela). As demais regras de material não mudam.
+  Valor agregado (Rafael 11/10; SUBSTITUI o "sem compra antecipada" de 09/10): regra de material do Flats aplicada à
+  verba inteira = MAIOR entre aplicado (Σ % do serviço de forma vinculado × orçado da linha) e gasto da verba (pago +
+  a pagar) limitado à verba; rateado entre as 13 linhas na mesma proporção do custo (orçado ÷ verba), cada linha
+  neutra. Estouro só se o gasto passar da verba. O resumo da verba mostra "comprado X% da verba" e "aplicado na obra
+  Y%". O % físico e as horas continuam os do serviço. Caixa dos Pontos de atenção: o excesso que abate a forma é
+  gasto − APLICADO (campo heranca), não mais gasto − valor agregado. Em S11: aplicado 12.731,18; gasto 34.036,04 →
+  valor agregado 34.036,04; estouro 0 (antes +21.304,86). As demais regras de material não mudam.
+- Nível PAVIMENTO no custo direto (Rafael 11/10): no "Custo direto por grupo" (components/CustoPorGrupo.jsx) e na
+  tabela de valor agregado (pages/custos-diretos.js), grupo com mais de um pavimento → pavimento (ordem de PAVIMENTOS,
+  rótulo de rotuloPavimento) → linhas, cada pavimento com subtotal, tudo recolhido. Grupo com um pavimento só vai
+  direto nas linhas. Pavimento só com linhas de título (R$ 0, ex.: 3.0.1 Pilotis) não aparece. Helper porPavimento em
+  components/ValorCusto.jsx.
 - Grupo 18 → INDIRETO (pedido 14A, Rafael 09/10): 18.1.1 "Mão de Obra Direta" (R$ 428.131,20) sai do direto e vira
   19.1.25 "Mão de obra de apoio (se houver necessidade)", tipo RESERVA (coluna custos_indiretos_planejados.reserva):
   planejado NÃO diluído, planejado = realizado (pago + a pagar) até a verba, "reserva · N% da verba usada"; só gera
@@ -241,6 +251,32 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
 - Fechamento de referência da primeira carga: 2026-09. GRAVADO em 08/10/2026 (carga 56f2a06f): BM4 19.336,12 +
   Betonita 616 29.620,00 (direto, não recorrente) + CEMIG 202,58 (recorrente). Custo direto a pagar = 48.956,12.
 - Implementação da regra da data: data de baixa vazia OU data de baixa > último dia do fechamento.
+  Rotina semanal (pedido 15): o fechamento passa a ser a DATA DE CORTE do relatório (competencia_fechamento
+  'AAAA-MM-DD'; SQL supabase/contas/2-fechamento-por-data.sql, NÃO rodado). A cada corte a lista é refeita inteira; o
+  site usa o corte mais recente até o fim da semana e tira do a pagar o título já pago até ali (lib/contas-a-pagar.js
+  semJaPagos) — nunca nos dois.
+
+## Rotina semanal de custos + contas a pagar (pedido 15; Rafael 09/10/2026)
+- Passo a passo em ROTINA_SEMANAL.md. Comando: node ferramentas/semana/atualizar.js (prévia) | --confirmar | --desfazer
+  <id> [--confirmar]. Entrada: automacao/entrada/AAAA-MM-DD/ (nome = data de corte; a pasta mais nova é a usada).
+  Saída: automacao/saida_semana/AAAA-MM-DD/ (previa.md, logs, carga_<id>.json; fora do git).
+- Só orquestra: classificador.py (--completo --corte), contas_a_pagar.py (--corte), semana_info.py (leitura e NF ↔ OC)
+  e importar.js (gravação, backup e desfazer; --apenas para relatório só da semana).
+- REGRA ANTI-DUPLICIDADE: CHAVE DO TÍTULO = fonte + CNPJ (sem CNPJ, o fornecedor) + documento com a parcela (sem zeros
+  à esquerda) + data de baixa (ferramentas/semana/chave.js). Mesma chave = mesmo pagamento, em quantos relatórios vier.
+  Relatório ACUMULADO (pagamentos antes dos últimos 10 dias): substitui só os meses com diferença (importar.js), nunca
+  soma por cima. Relatório SÓ DA SEMANA: insere só as chaves novas e nada sai (importar.js --apenas). Pago depois da
+  data de corte não entra no custo daquela carga (fica no a pagar do corte). Histórico manual (lancado_por =
+  'Rafael') nunca é tocado.
+- BLOQUEIAM a carga (prévia mostra e o --confirmar para): mesma chave nas duas fontes; título pago que sumiu do
+  relatório novo; valor de título já pago que mudou; mês fechado cujo total mudou > R$ 0,01 sem explicação título a
+  título; título no a pagar e no custo até o corte; trava do importar.js. Pendência de classificação no mês a gravar
+  também para. O Rafael decide caso a caso.
+- Teste de 09/10 (só prévia): relatórios "Até 09-26" como 1ª semana (corte 30/09) = custo novo zero, bloqueio zero,
+  a pagar R$ 49.158,70 (igual ao banco); relatório igual = zero; um título a mais = só ele; valor mudado = bloqueio.
+- NF ↔ OC (3B): chave = nº da NF + CNPJ do relatório de OC (ou nº da OC no documento); o classificador já abre a NF
+  pelos itens da OC. Em 09/10 só 15,5% do material da Dinâmica tinha OC ligada (os relatórios de OC só cobrem parte de
+  ago/set). A tabela de regras por item de OC (3B-b) espera o Rafael mandar o relatório de OC completo da obra.
 
 ## Painel "Pontos de atenção" (pedido 14B; decisões do Rafael, 09/10/2026)
 - REGRA DE OURO: não inventar índice, equipe ou prazo. Faltou → "dado pendente" e lista para o Rafael.

@@ -3,10 +3,10 @@ import { useRouter } from 'next/router'
 import React, { useEffect, useMemo, useState } from 'react'
 import { OBRA, fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, semanaLabel, semanaAtualObra, semanasPorMes, rotuloPavimento } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
-import { PLAN, VERDE, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar, ResumoVerbaForma } from '../components/ValorCusto'
+import { PLAN, VERDE, VERMELHO, AMBAR, MONO, dir, PercOrcado, Estouro, Saldo, somar, ResumoVerbaForma, porPavimento } from '../components/ValorCusto'
 
 // Memória de cálculo do valor agregado (pedido 13C): layout, cores, formato e textos da /valor-agregado do Flats.
-// Uma tabela única, grupo → linhas (código + pavimento). Números da /api/painel (lib/valor-agregado.js):
+// Uma tabela única, grupo → [pavimento, se o grupo tem mais de um (Rafael 11/10), com subtotal] → linhas. Números da /api/painel (lib/valor-agregado.js):
 //   serviço = % medido × orçado · material = maior entre o % do serviço vinculado × orçado e o custo até o orçado
 //   locação (17) = gasto até a verba · limpeza/EPI (1.1.6) e mão de obra direta (18) = tempo decorrido da obra
 const s2 = (n) => `S${String(n).padStart(2, '0')}`
@@ -48,7 +48,7 @@ function Linha({ children, cabecalho, destaque, onClick, title }) {
 }
 
 // Subtotal de grupo ou total: todas as colunas somadas
-function LinhaTotal({ codigo, nome, t, forte, onClick, aberto, title }) {
+function LinhaTotal({ codigo, nome, t, forte, onClick, aberto, title, pavimento }) {
   const w = forte ? 600 : 500
   const semExec = !(t.agregado > 0.005)
   return (
@@ -57,7 +57,7 @@ function LinhaTotal({ codigo, nome, t, forte, onClick, aberto, title }) {
         {onClick && <span style={{ color: 'var(--text2)', marginRight: 6 }}>{aberto ? '▾' : '▸'}</span>}
         {codigo}
       </div>
-      <div style={{ fontWeight: w, textTransform: 'uppercase' }}>{nome}</div>
+      <div style={pavimento ? { fontWeight: 600, paddingLeft: 14 } : { fontWeight: w, textTransform: 'uppercase' }}>{nome}</div>
       <div />
       <div style={{ ...dir, fontWeight: w }}>{fmtMoeda(t.orcado)}</div>
       <div style={{ ...dir, fontWeight: w }}>{semExec || !(t.orcado > 0) ? '—' : fmtP((t.agregado / t.orcado) * 100)}</div>
@@ -78,11 +78,12 @@ const medidoDe = (i) => i.tipo === 'tempo' ? 'tempo'
   : i.tipo === 'locacao' ? 'verba'
   : i.tipo === 'material' ? (i.material_comprado ? 'compra antecipada' : `herda ${(i.herda_de || []).map((h) => h.codigo_eap).join('/')}`)
   : i.semana_medida ? s2(i.semana_medida) : '—'
-const tituloMedido = (i) => i.material_comprado
+const tituloMedido = (i) => i.verba_forma
+  ? `Verba de forma (material reaproveitado): valor agregado = maior entre o aplicado na obra (% de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)}`).join(' + ')} × orçado) e o comprado da verba inteira (até a verba), rateado pela mesma fração do custo: ${String(i.verba_forma_pct).replace('.', ',')}% da verba`
+  : i.material_comprado
   ? `Compra antecipada (material comprado antes da execução): agregado = custo pago + a pagar, até o orçado. O serviço está em ${fmtP(i.perc_real)}.`
   : i.tipo === 'tempo' ? 'Verba que corre com o tempo: linear pelos dias da obra'
   : i.tipo === 'locacao' ? 'Locação: valor agregado = gasto até a verba'
-  : i.verba_forma ? `Verba de forma (material reaproveitado): valor agregado = % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)}`).join(' + ')} × orçado; custo = ${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba`
   : i.tipo === 'material' ? `Material sem medição própria: usa o % de ${(i.herda_de || []).map((h) => `${h.codigo_eap} ${rotuloPavimento(h.pavimento, h.codigo_eap)}${h.peso < 1 ? ` (peso ${fmtP(h.peso * 100)})` : ''}`).join(' + ')}; ou o custo pago + a pagar até o orçado, se for maior`
   : ''
 
@@ -99,8 +100,9 @@ function memoriaDaLinha(i, av) {
   if (i.tipo === 'locacao') return { regra: 'verba / locação neutra', origem: 'pago ÷ verba (valor agregado = pago, limitado à verba)',
     pct: i.perc_verba, conta: `mínimo entre pago ${fmtMoeda(i.pago)} e verba ${fmtMoeda(i.orcado)} = ${fmtMoeda(i.agregado)}` }
   if (i.verba_forma) return { regra: 'verba de forma rateada', origem: `serviço vinculado ${her || '—'}`, pct: i.perc_real,
-    conta: `${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.agregado)} (sem compra antecipada); custo = ` +
-      `${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba de forma` }
+    conta: `aplicado ${fmtMoeda(i.orcado)} × ${pct2(i.perc_real)} = ${fmtMoeda(i.heranca)}; valor agregado = ` +
+      `${String(i.verba_forma_pct).replace('.', ',')}% do valor agregado da verba (maior entre aplicado e comprado até a verba) = ` +
+      `${fmtMoeda(i.agregado)}; custo = ${String(i.verba_forma_pct).replace('.', ',')}% do gasto da verba de forma` }
   if (i.tipo === 'material') return {
     regra: i.material_comprado ? 'material: compra antecipada' : `material herdado do serviço ${(i.herda_de || []).map((h) => h.codigo_eap).join(' + ')}`,
     origem: `serviço vinculado ${her || '—'}`, pct: i.perc_real,
@@ -145,6 +147,15 @@ function Memoria({ i, av }) {
   )
 }
 
+function Zerados({ n }) {
+  if (!(n > 0)) return null
+  return (
+    <div style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text2)', padding: '6px 0 10px 100px' }}>
+      {n} {n === 1 ? 'item não iniciado' : 'itens não iniciados'} (0%)
+    </div>
+  )
+}
+
 export default function ValorAgregado() {
   const router = useRouter()
   const [semana, setSemana] = useState(semanaAtualObra())
@@ -180,12 +191,20 @@ export default function ValorAgregado() {
       if (i.perc_real > 0 || i.agregado > 0.005 || custo > 0.005 || mostrarZerados) g.itens.push(i)
       else g.zerados += 1
     })
+    // nível pavimento (Rafael 11/10): subtotal com todas as linhas do pavimento; aparece se tiver linha mostrada
     // Grupo sem nenhum item iniciado (ou sem resultado na busca) também some; o total geral soma todos
-    return Array.from(mapa.values()).sort((a, b) => a.grupo - b.grupo).map((g) => ({ ...g, t: somar(g.todas) }))
-      .filter((g) => g.itens.length > 0 || (mostrarZerados && !termo))
+    const naoTitulo = (i) => i.orcado > 0.005 || i.pago + i.a_pagar > 0.005 || i.agregado > 0.005
+    return Array.from(mapa.values()).sort((a, b) => a.grupo - b.grupo).map((g) => {
+      const pavs = porPavimento(g.todas, g.grupo, naoTitulo)
+      return { ...g, t: somar(g.todas), pavs: pavs && pavs.map((pv) => {
+        const itens = g.itens.filter((i) => (i.pavimento || '—') === pv.pavimento)
+        const zerados = pv.todas.filter(naoTitulo).length - itens.length
+        return { ...pv, itens, zerados: termo ? 0 : zerados }
+      }).filter((pv) => pv.itens.length > 0 || (mostrarZerados && !termo)) }
+    }).filter((g) => g.itens.length > 0 || (mostrarZerados && !termo))
   }, [p, busca, mostrarZerados])
 
-  const chaves = grupos.map((g) => `g${g.grupo}`)
+  const chaves = grupos.flatMap((g) => [`g${g.grupo}`, ...(g.pavs || []).map((pv) => `g${g.grupo}|${pv.pavimento}`)])
   const todosAbertos = chaves.length > 0 && chaves.every((k) => abertos.has(k))
   const estaAberto = (k) => !!busca.trim() || abertos.has(k)
   const alternar = (k) => setAbertos((atual) => {
@@ -197,6 +216,34 @@ export default function ValorAgregado() {
 
   const pt = p ? p.totais.por_tipo : null
   const total = p ? somar(p.linhas) : null
+
+  // uma linha do orçamento (clique abre a memória de cálculo)
+  const linhaItem = (i) => {
+    const semExec = !(i.agregado > 0.005)
+    const estouroPago = i.pago > i.agregado + 0.005 && i.agregado > 0
+    return (
+      <React.Fragment key={i.id}>
+      <Linha onClick={() => setMemoria((m) => (m === i.id ? null : i.id))} title="Clique para ver a memória de cálculo">
+        <div style={{ color: 'var(--text2)' }}>{i.codigo_eap}</div>
+        <div>{i.descricao}</div>
+        <div style={{ color: 'var(--text2)', fontSize: 11 }}>{rotuloPavimento(i.pavimento, i.codigo_eap) || '—'}</div>
+        <div style={dir}>{fmtMoeda(i.orcado)}</div>
+        <div style={dir}>{semExec || i.tipo === 'locacao' || i.perc_real == null ? '—' : fmtP(i.perc_real)}</div>
+        <div style={{ ...dir, overflowWrap: 'break-word', color: i.tipo === 'servico' ? 'var(--text2)' : PLAN }} title={tituloMedido(i)}>{medidoDe(i)}</div>
+        <div style={{ ...dir, color: semExec ? 'var(--text2)' : PLAN }}>{semExec ? '—' : fmtMoeda(i.agregado)}</div>
+        <div style={{ ...dir, color: estouroPago ? VERMELHO : 'var(--text)' }} title={estouroPago ? 'Pago acima do executado' : ''}>
+          {i.pago > 0.005 ? fmtMoeda(i.pago) : '—'}
+        </div>
+        <div style={{ ...dir, color: i.a_pagar > 0.005 ? AMBAR : 'var(--text2)' }}>{i.a_pagar > 0.005 ? fmtMoeda(i.a_pagar) : '—'}</div>
+        <PercOrcado orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
+        <Estouro agregado={i.agregado} pago={i.pago} aPagar={i.a_pagar} orcado={i.orcado}
+          neutro={i.material_comprado || i.tipo === 'locacao'} />
+        <Saldo orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
+      </Linha>
+      {memoria === i.id && <Memoria i={i} av={p.avanco} />}
+      </React.Fragment>
+    )
+  }
 
   return (
     <>
@@ -309,37 +356,19 @@ export default function ValorAgregado() {
                         title={g.t.plan_valor > 0
                           ? `Ritmo de gasto vs cronograma: pago ${fmtMoeda(g.t.pago)} de ${fmtMoeda(g.t.plan_valor)} planejados até ${s2(semana)} (${fmtP((g.t.pago / g.t.plan_valor) * 100)})`
                           : 'Sem planejado do cronograma até a semana'} />
-                      {estaAberto(`g${g.grupo}`) && g.itens.map((i) => {
-                        const semExec = !(i.agregado > 0.005)
-                        const estouroPago = i.pago > i.agregado + 0.005 && i.agregado > 0
+                      {estaAberto(`g${g.grupo}`) && !g.pavs && g.itens.map(linhaItem)}
+                      {estaAberto(`g${g.grupo}`) && !g.pavs && <Zerados n={g.zerados} />}
+                      {estaAberto(`g${g.grupo}`) && g.pavs && g.pavs.map((pv) => {
+                        const k = `g${g.grupo}|${pv.pavimento}`
                         return (
-                          <React.Fragment key={i.id}>
-                          <Linha onClick={() => setMemoria((m) => (m === i.id ? null : i.id))} title="Clique para ver a memória de cálculo">
-                            <div style={{ color: 'var(--text2)' }}>{i.codigo_eap}</div>
-                            <div>{i.descricao}</div>
-                            <div style={{ color: 'var(--text2)', fontSize: 11 }}>{rotuloPavimento(i.pavimento, i.codigo_eap) || '—'}</div>
-                            <div style={dir}>{fmtMoeda(i.orcado)}</div>
-                            <div style={dir}>{semExec || i.tipo === 'locacao' || i.perc_real == null ? '—' : fmtP(i.perc_real)}</div>
-                            <div style={{ ...dir, overflowWrap: 'break-word', color: i.tipo === 'servico' ? 'var(--text2)' : PLAN }} title={tituloMedido(i)}>{medidoDe(i)}</div>
-                            <div style={{ ...dir, color: semExec ? 'var(--text2)' : PLAN }}>{semExec ? '—' : fmtMoeda(i.agregado)}</div>
-                            <div style={{ ...dir, color: estouroPago ? VERMELHO : 'var(--text)' }} title={estouroPago ? 'Pago acima do executado' : ''}>
-                              {i.pago > 0.005 ? fmtMoeda(i.pago) : '—'}
-                            </div>
-                            <div style={{ ...dir, color: i.a_pagar > 0.005 ? AMBAR : 'var(--text2)' }}>{i.a_pagar > 0.005 ? fmtMoeda(i.a_pagar) : '—'}</div>
-                            <PercOrcado orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
-                            <Estouro agregado={i.agregado} pago={i.pago} aPagar={i.a_pagar} orcado={i.orcado}
-                              neutro={i.material_comprado || i.tipo === 'locacao'} />
-                            <Saldo orcado={i.orcado} pago={i.pago} aPagar={i.a_pagar} />
-                          </Linha>
-                          {memoria === i.id && <Memoria i={i} av={p.avanco} />}
-                          </React.Fragment>
+                          <div key={k}>
+                            <LinhaTotal codigo="" nome={pv.rotulo} t={pv.t} pavimento onClick={() => alternar(k)} aberto={estaAberto(k)}
+                              title={`Subtotal do pavimento ${pv.rotulo} (todas as linhas do pavimento no grupo ${g.grupo})`} />
+                            {estaAberto(k) && pv.itens.map(linhaItem)}
+                            {estaAberto(k) && <Zerados n={pv.zerados} />}
+                          </div>
                         )
                       })}
-                      {estaAberto(`g${g.grupo}`) && g.zerados > 0 && (
-                        <div style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text2)', padding: '6px 0 10px 100px' }}>
-                          {g.zerados} {g.zerados === 1 ? 'item não iniciado' : 'itens não iniciados'} (0%)
-                        </div>
-                      )}
                     </div>
                   ))}
 

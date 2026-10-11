@@ -1,7 +1,7 @@
 // Peças da tabela de valor agregado e do quadro "custo direto por grupo" (pedido 13C), copiadas do Flats
 // (pages/valor-agregado.js e pages/semanal.js de lá): estouro / economia, % do orçado, "neutro · XX% da verba" e
 // a barrinha divergente. Componentes sem hooks.
-import { fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, CORES_VA } from '../lib/constants'
+import { fmtMoeda2 as fmtMoeda, fmtP1 as fmtP, CORES_VA, PAVIMENTOS, rotuloPavimento } from '../lib/constants'
 
 export const { agregado: PLAN, economia: VERDE, estouro: VERMELHO, aPagar: AMBAR } = CORES_VA
 export const CINZA = '#8b919c'
@@ -131,18 +131,22 @@ export function somar(ls) {
 }
 
 // Resumo da VERBA DE FORMA (material) — pedido 14A: as 13 linhas de material de forma são uma verba única
-// (reaproveitamento da madeira). v = painel.totais.verba_forma. Gasto acima do valor agregado e abaixo da verba é
-// material comprado antes da execução: aparece como estouro até o serviço avançar (com a dica).
+// (reaproveitamento da madeira). v = painel.totais.verba_forma. Desde 11/10 (Rafael) a verba segue a regra de material
+// do Flats: valor agregado = maior entre o aplicado na obra (% do serviço × orçado) e o gasto limitado à verba, então a
+// compra antecipada fica neutra; estouro só se o gasto passar da verba. Mostra o comprado e o aplicado em % da verba.
 export function ResumoVerbaForma({ v }) {
   if (!v || !(v.verba > 0)) return null
   const pv = (x) => fmtP((100 * x) / v.verba)
   const e = estouroDe(v.agregado, v.gasto)
-  const antecipado = v.gasto > v.agregado + 0.005 && v.gasto < v.verba
+  const aplicado = v.aplicado != null ? v.aplicado : v.agregado
+  const antecipado = v.gasto > aplicado + 0.005 && v.gasto <= v.verba + 0.005
+  const neutro = e != null && Math.abs(e.rs) < 0.005 && v.gasto > 0.005
   const cel = { textAlign: 'right', fontFamily: 'var(--mono)', fontSize: 12 }
   const rot = { fontSize: 10, color: CINZA, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.06em' }
+  const sub = { fontSize: 10, color: CINZA }
   return (
     <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', margin: '0 0 14px',
-                  display: 'grid', gridTemplateColumns: 'minmax(160px,1fr) repeat(5, minmax(110px, auto))', gap: '4px 18px',
+                  display: 'grid', gridTemplateColumns: 'minmax(160px,1fr) repeat(6, minmax(100px, auto))', gap: '4px 18px',
                   alignItems: 'center' }}>
       <div style={{ fontWeight: 600, fontSize: 12 }}>
         VERBA DE FORMA (material)
@@ -150,20 +154,43 @@ export function ResumoVerbaForma({ v }) {
       </div>
       <div style={cel}><div style={rot}>Verba</div>{fmtMoeda(v.verba)}</div>
       <div style={cel} title={`pago ${fmtMoeda(v.pago)} + a pagar ${fmtMoeda(v.a_pagar)}`}>
-        <div style={rot}>Gasto (pago + a pagar)</div>{fmtMoeda(v.gasto)}<div style={{ fontSize: 10, color: CINZA }}>{pv(v.gasto)} da verba</div>
+        <div style={rot}>Comprado (pago + a pagar)</div>{fmtMoeda(v.gasto)}<div style={sub}>comprado {pv(v.gasto)} da verba</div>
       </div>
-      <div style={{ ...cel, color: PLAN }}><div style={rot}>Valor agregado</div>{fmtMoeda(v.agregado)}<div style={{ fontSize: 10, color: CINZA }}>{pv(v.agregado)} da verba</div></div>
-      <div style={{ ...cel, color: corEstouro(e) }} title={tituloEstouro(e, v.agregado, v.pago, v.a_pagar)}>
-        <div style={rot}>Estouro / economia</div>{e == null ? '—' : fmtEstouroRs(e.rs)}
-        <div style={{ fontSize: 10 }}>{e == null ? '' : fmtEstouroPerc(e.perc)}</div>
+      <div style={cel} title="Σ % do serviço de forma vinculado × orçado de cada linha da verba">
+        <div style={rot}>Aplicado na obra</div>{fmtMoeda(aplicado)}<div style={sub}>aplicado na obra {pv(aplicado)}</div>
+      </div>
+      <div style={{ ...cel, color: PLAN }}
+           title="Maior entre o aplicado na obra e o comprado (limitado à verba), rateado pelas linhas na proporção do custo">
+        <div style={rot}>Valor agregado</div>{fmtMoeda(v.agregado)}<div style={sub}>{pv(v.agregado)} da verba</div>
+      </div>
+      <div style={{ ...cel, color: neutro ? CINZA : corEstouro(e) }} title={tituloEstouro(e, v.agregado, v.pago, v.a_pagar)}>
+        <div style={rot}>Estouro / economia</div>{e == null ? '—' : neutro ? 'neutro' : fmtEstouroRs(e.rs)}
+        <div style={{ fontSize: 10 }}>{e == null || neutro ? '' : fmtEstouroPerc(e.perc)}</div>
       </div>
       <div style={{ ...cel, color: v.saldo < -0.005 ? VERMELHO : 'var(--text)' }}><div style={rot}>Saldo da verba</div>{fmtMoeda(v.saldo)}</div>
       {antecipado && (
         <div style={{ gridColumn: '1 / -1', fontSize: 11, color: CINZA }}>
-          Material comprado antes da execução (reaproveitamento): o gasto passa do valor agregado até o serviço de forma
-          avançar; ainda dentro da verba.
+          Compra antecipada (reaproveitamento): comprado além do aplicado na obra, dentro da verba — o valor agregado segue
+          o comprado, sem estouro. Estouro só se o comprado passar da verba.
         </div>
       )}
     </div>
   )
+}
+
+// Nível PAVIMENTO (Rafael 11/10): grupo com mais de um pavimento → pavimento → linhas, cada pavimento com subtotal.
+// itens = todas as linhas do grupo (as somas usam todas); visivel(i) diz se a linha aparece. Pavimento só com linhas
+// que não aparecem (título do orçamento, R$ 0) não conta nem aparece. Grupo com um pavimento só: null (direto nas
+// linhas). Ordem de PAVIMENTOS; rótulo de rotuloPavimento (estrutura 3.1 = "Subsolo / Pilotis").
+export function porPavimento(itens, grupo, visivel) {
+  const mapa = new Map()
+  itens.forEach((i) => {
+    const k = i.pavimento || '—'
+    if (!mapa.has(k)) mapa.set(k, { pavimento: k, rotulo: rotuloPavimento(i.pavimento, grupo) || '—', todas: [] })
+    mapa.get(k).todas.push(i)
+  })
+  const pavs = Array.from(mapa.values()).filter((p) => p.todas.some(visivel))
+  if (pavs.length <= 1) return null
+  const ordem = (p) => { const n = PAVIMENTOS.indexOf(p.pavimento); return n < 0 ? 99 : n }
+  return pavs.sort((a, b) => ordem(a) - ordem(b)).map((p) => ({ ...p, t: somar(p.todas) }))
 }
