@@ -374,7 +374,15 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   data em que o cronograma previa chegar ao % feito. Faixas do semáforo além do rendimento (definido pelo Rafael: ≥ 1,00
   verde, 0,95–1,00 amarelo, < 0,95 vermelho) são do relatório, escritas na página: prazo (atraso até 2 semanas
   amarelo), indireto e projeção (estouro até 5% amarelo), atividade (atraso até 7 dias amarelo).
-- Sem siglas na tela: valor do que foi feito, gasto, rendimento do custo, avanço físico.
+- Sem siglas na tela: valor do que foi feito, custo (pago + a pagar), rendimento do custo, avanço físico.
+- Ajustes (Rafael 11/10): resposta principal do custo = ACUMULADO até a data final ("até DD/MM gastamos R$ X a
+  menos/mais que o valor do que foi feito"); semáforo da pergunta (a) pelo acumulado; o período fica como informação,
+  com a frase de que pagamentos de um período podem se referir a serviços medidos antes (concreto e aço de agosto pagos
+  em setembro). Pago e a pagar sempre separados e somados ("Custo: R$ X (pago R$ Y + a pagar R$ Z)"); a soma é o custo
+  das comparações. Lista curta das contas a pagar (fornecedor, documento, vencimento, valor) na seção do custo. O a
+  pagar com vencimento nos 30 dias depois da data final entra no caixa ("contas já lançadas a pagar") e a projeção diz
+  "inclui R$ Z já lançados a pagar". Faixas do semáforo aprovadas (prazo 2 semanas; indireto e projeção 5%; atividade
+  7 dias).
 
 ## IPC, IDP e projeções de custo final (pedido 14E; decisões do Rafael, 09/10/2026)
 - Conta em lib/projecoes.js; cards e painel em components/Dashboard.jsx (3ª linha: "Projeções de custo final" + IPC no

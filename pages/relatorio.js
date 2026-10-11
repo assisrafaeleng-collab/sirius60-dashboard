@@ -31,6 +31,8 @@ function mil(v) {
 }
 const S2 = (n) => `S${String(n).padStart(2, '0')}`
 const descCurta = (d) => String(d || '').replace(/\s*-?\s*\((M[ãa]o de Obra|Apenas Material|Material)\)\s*$/i, '').trim()
+// custo sempre separado e somado (Rafael 11/10): "R$ X (pago R$ Y + a pagar R$ Z)"
+const custoTxt = (pago, ap, f = fmt2) => `${f((pago || 0) + (ap || 0))} (pago ${f(pago || 0)} + a pagar ${f(ap || 0)})`
 const nomeAtiv = (l) => `${l.codigo_eap} · ${descCurta(l.descricao)} · ${rotuloPavimento(l.pavimento, l.codigo_eap)}`
 
 async function pegar(url) {
@@ -55,13 +57,14 @@ export default function Relatorio() {
     if (!per) { setErro('O período termina antes do início da obra (03/08/2026).'); return }
     ;(async () => {
       try {
-        const [dash, pFim, pAntes, pa, curva, indFim] = await Promise.all([
+        const [dash, pFim, pAntes, pa, curva, indFim, contas] = await Promise.all([
           pegar(`/api/dashboard-integrado?semana=${per.sFim}`),
           pegar(`/api/painel?semana=${per.sFim}`),
           per.sAntes >= 1 ? pegar(`/api/painel?semana=${per.sAntes}`) : Promise.resolve(null),
           pegar(`/api/pontos-atencao?semana=${per.sFim}`),
           pegar(`/api/curva-s?semana=${per.sFim}`),
           pegar(`/api/indiretos?semana=${per.sFim}`),
+          pegar(`/api/contas-a-pagar?semana=${per.sFim}`),
         ])
         const med = ultimaMedicaoAte(pFim)
         let pMed = null, indMed = null
@@ -71,7 +74,7 @@ export default function Relatorio() {
             med.semana === per.sFim ? Promise.resolve(indFim) : pegar(`/api/indiretos?semana=${med.semana}`),
           ])
         }
-        setD({ per, dash, pFim, pAntes, pa, curva, indFim, med, pMed, indMed, gerado: hojeSaoPaulo() })
+        setD({ per, dash, pFim, pAntes, pa, curva, indFim, contas, med, pMed, indMed, gerado: hojeSaoPaulo() })
       } catch (e) { setErro(e.message) }
     })()
   }, [router.isReady, router.query.de, router.query.ate])
@@ -105,7 +108,9 @@ function montar(d) {
   const saldoDireto = tot.agregado - tot.comprometido
   // indireto: o mesmo dos cards do indireto (planejado × pago + a pagar)
   const indPlan = k.custo_indireto_planejado_ate || 0
-  const indReal = (k.custo_indireto_realizado || 0) + (pFim.contas && pFim.contas.totais ? pFim.contas.totais.indireto || 0 : 0)
+  const indPago = k.custo_indireto_realizado || 0
+  const indAPagar = pFim.contas && pFim.contas.totais ? pFim.contas.totais.indireto || 0 : 0
+  const indReal = indPago + indAPagar
   const saldoInd = indPlan - indReal
   const pctInd = indPlan > 0 ? 100 * saldoInd / indPlan : null
   // b) prazo na semana da última medição (como os cards)
@@ -120,7 +125,7 @@ function montar(d) {
   const cx = caixa30(pa)
   const fis = fisicoDoPeriodo(pFim, pAntes, per.fimReal, !!med && !medNoPeriodo, med ? med.data : null)
   const fin = financeiroDoPeriodo(pFim, pAntes)
-  return { k, tot, idx, saldoDireto, indPlan, indReal, saldoInd, pctInd, medNoPeriodo, adi, idxMed, proj, cx, fis, fin }
+  return { k, tot, idx, saldoDireto, indPlan, indPago, indAPagar, indReal, saldoInd, pctInd, medNoPeriodo, adi, idxMed, proj, cx, fis, fin }
 }
 
 function Conteudo({ d }) {
@@ -194,8 +199,12 @@ function Resumo({ d, m }) {
   // a) direto
   const a = temValor
     ? { cor: corRendimento(rend), grande: `${mil(m.saldoDireto)} de ${m.saldoDireto >= 0 ? 'economia' : 'estouro'}`,
-        frase: <>Para cada R$ 1,00 gasto, a obra executou <b>R$ {virg(rend)}</b> de serviço. Valor do que foi feito
-          {' '}{mil(m.tot.agregado)} − gasto {mil(m.tot.comprometido)} (pago + a pagar), do início até {fim}.</> }
+        frase: <>Até {fim} gastamos <b>{mil(m.saldoDireto)} a {m.saldoDireto >= 0 ? 'menos' : 'mais'}</b> que o valor do que foi feito
+          ({mil(m.tot.agregado)}). Custo: {custoTxt(m.tot.pago, m.tot.a_pagar, mil)}. Para cada R$ 1,00 gasto, a obra executou
+          {' '}<b>R$ {virg(rend)}</b> de serviço.
+          <div className="motivo" style={{ marginTop: 4 }}>Só no período: feito {mil(m.fin.total.feito)}, custo {mil(m.fin.total.gasto)}
+            {' '}({m.fin.total.saldo >= 0 ? 'economia' : 'estouro'} de {mil(m.fin.total.saldo)}). Pagamentos de um período podem se referir a
+            serviços medidos em períodos anteriores.</div></> }
     : { cor: 'cinza', grande: 'sem dado', frase: 'Ainda não há serviço medido até a data final.' }
   // indireto
   const ci = m.indPlan > 0 ? corSaldoPct(m.pctInd) : 'cinza'
@@ -226,7 +235,7 @@ function Resumo({ d, m }) {
         <Pergunta q="Estamos gastando menos do que deveríamos? (custo direto)" cor={a.cor} grande={a.grande} frase={a.frase}>
           <div className="frase" style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${LINHA}` }}>
             <Sinal cor={ci} /> <b>Custo indireto</b> (administração, projetos, taxas, terreno): {m.indPlan > 0
-              ? <>previsto {mil(m.indPlan)} × gasto {mil(m.indReal)} até {fim} → {mil(m.saldoInd)} {m.saldoInd >= 0 ? 'abaixo' : 'acima'} do previsto ({pc1(Math.abs(m.pctInd))}).
+              ? <>previsto {mil(m.indPlan)} × custo {custoTxt(m.indPago, m.indAPagar, mil)} até {fim} → {mil(m.saldoInd)} {m.saldoInd >= 0 ? 'abaixo' : 'acima'} do previsto ({pc1(Math.abs(m.pctInd))}).
                 {aRealizar > 0.005 && <> Inclui {mil(aRealizar)} previstos e ainda não pagos: não é economia de verdade.</>}</>
               : 'sem previsão até a data final.'}
           </div>
@@ -239,7 +248,7 @@ function Resumo({ d, m }) {
             <tbody>
               {cx.grupos.slice(0, 4).map((g) => <tr key={g.grupo}><td>{g.grupo} {g.nome}</td><td className="n">{mil(g.valor)}</td></tr>)}
               {cx.grupos.length > 4 && <tr><td>outros grupos</td><td className="n">{mil(cx.grupos.slice(4).reduce((t, g) => t + g.valor, 0))}</td></tr>}
-              <tr><td>Contas já lançadas a pagar ({cx.n_contas} título{cx.n_contas === 1 ? '' : 's'})</td><td className="n">{mil(cx.contas)}</td></tr>
+              <tr><td>Contas já lançadas a pagar que vencem no período ({cx.n_contas} título{cx.n_contas === 1 ? '' : 's'})</td><td className="n">{mil(cx.contas)}</td></tr>
               <tr><td>Custo indireto do período</td><td className="n">{mil(cx.indiretos)}</td></tr>
             </tbody>
           </table>
@@ -249,7 +258,8 @@ function Resumo({ d, m }) {
           frase={cen && cen.otimista.total != null ? <>
             Se mantivermos o ritmo atual, a obra deve terminar com <b>{cen.otimista.saldo_total >= 0 ? 'economia' : 'estouro'} de
             {' '}{mil(cen.otimista.saldo_total)} ({pc1(Math.abs(cen.otimista.saldo_total_pct))})</b> sobre o orçamento de {mil(p.orcamento_total)}.
-            Faixa entre {mil(Math.min(...totais))} e {mil(Math.max(...totais))} nos outros cenários. Base: medição de {dmy(med.data)}.
+            Faixa entre {mil(Math.min(...totais))} e {mil(Math.max(...totais))} nos outros cenários. Base: medição de {dmy(med.data)};
+            o custo até lá, {custoTxt(pMed.totais.pago, pMed.totais.a_pagar, mil)}, já está na projeção: <b>inclui {mil(pMed.totais.a_pagar)} já lançados a pagar</b>.
             {pouco && <span style={{ color: COR.amarelo }}> Projeção pouco confiável com menos de 15% de avanço (hoje {pc1(pMed.avanco.realizado)}).</span>}
           </> : 'Sem medição ainda: não há projeção.'} />
       </div>
@@ -307,63 +317,109 @@ function Fisico({ d, m }) {
   )
 }
 
-/* 4. QUANTO CUSTOU O QUE FOI FEITO (FINANCEIRO DO PERÍODO) */
+/* 4. QUANTO CUSTOU O QUE FOI FEITO (Rafael 11/10: resposta principal = ACUMULADO até a data final; período = informação;
+   pago e a pagar sempre separados e somados) */
 function Financeiro({ d, m }) {
-  const { per } = d
+  const { per, contas } = d
   const f = m.fin
-  const corGrupo = (g) => (!g.movimento ? 'cinza' : g.gasto > 0.005 ? corRendimento(g.feito / g.gasto) : g.feito > 0.005 ? 'verde' : 'cinza')
-  const pctSaldo = (feito, saldo) => (feito > 0.005 ? pc1(Math.abs(100 * saldo / feito)) : '—')
+  const fim = dmy(per.fimReal)
+  const cor = (feito, custo) => (custo > 0.005 ? corRendimento(feito / custo) : feito > 0.005 ? 'verde' : 'cinza')
+  const pct = (feito, saldo) => (feito > 0.005 ? pc1(Math.abs(100 * saldo / feito)) : '—')
+  const dif = (saldo) => (Math.abs(saldo) < 0.005 ? <span style={{ color: SUAVE }}>sem diferença</span>
+    : <span style={{ color: saldo > 0 ? COR.verde : COR.vermelho }}>{saldo > 0 ? 'economia' : 'estouro'} {fmt2(Math.abs(saldo))}</span>)
+  const Custo = ({ pago, ap }) => <>{fmt2((pago || 0) + (ap || 0))}<div className="motivo">pago {fmt2(pago || 0)} + a pagar {fmt2(ap || 0)}</div></>
+  const comAc = f.grupos.filter((g) => g.tem_ac)
   const comMov = f.grupos.filter((g) => g.movimento)
+  const t = m.tot
   const linhaDif = (l) => (
     <tr key={l.id}>
       <td>{nomeAtiv(l)}<div className="motivo">{motivoDaDiferenca(l)}</div></td>
-      <td className="n">{fmt2(l.feito_periodo)}</td><td className="n">{fmt2(l.gasto_periodo)}</td>
-      <td className="n" style={{ color: l.saldo_periodo >= 0 ? COR.verde : COR.vermelho }}>{fmt2(Math.abs(l.saldo_periodo))}</td>
+      <td className="n">{fmt2(l.agregado)}</td>
+      <td className="n"><Custo pago={l.pago} ap={l.a_pagar} /></td>
+      <td className="n">{dif(l.saldo_acumulado)}</td>
     </tr>
   )
+  const titulos = (contas && contas.titulos) || []
+  const tipoTxt = (x) => (x.tipo === 'direto' ? 'sim' : x.tipo === 'direto recorrente' ? 'não (conta recorrente; entra no caixa)'
+    : x.tipo === 'indireto' ? 'não (custo indireto)' : x.tipo || '—')
   return (
     <section className="folha quebra">
-      <h3>Quanto custou o que foi feito no período</h3>
-      <p className="intro">De {dmy(per.iniReal)} a {dmy(per.fimReal)}, só custo direto. <b>Valor do que foi feito</b> = serviço executado no
-        período a preço de orçamento. <b>Gasto</b> = pago no período + o que ficou a pagar (o que já estava a pagar no início e foi pago
-        conta uma vez só). Economia quando o feito vale mais que o gasto.</p>
+      <h3>Quanto custou o que foi feito</h3>
+      <p className="intro">Custo direto, do início da obra até {fim}. <b>Valor do que foi feito</b> = serviço executado a preço de orçamento.
+        {' '}<b>Custo</b> = pago + lançado a pagar (as duas partes aparecem separadas); é sempre a soma que entra na comparação.</p>
+      <p className="conclusao" style={{ marginTop: 0 }}>Até {fim} gastamos <b>{fmt2(Math.abs(m.saldoDireto))} a {m.saldoDireto >= 0 ? 'menos' : 'mais'}</b> que o
+        valor do que foi feito: feito {fmt2(t.agregado)} × custo {custoTxt(t.pago, t.a_pagar)}.</p>
       <table className="tab">
-        <thead><tr><th>Grupo</th><th className="n">Orçado do grupo</th><th className="n">Valor do que foi feito</th><th className="n">Gasto</th>
+        <thead><tr><th>Grupo</th><th className="n">Orçado</th><th className="n">Valor do que foi feito</th><th className="n">Custo (pago + a pagar)</th>
           <th className="n">Economia / estouro</th><th className="n">%</th><th /></tr></thead>
         <tbody>
-          {comMov.map((g) => (
+          {comAc.map((g) => (
             <tr key={g.grupo}>
-              <td>{g.grupo} {g.nome}</td><td className="n">{fmt2(g.orcado)}</td><td className="n">{fmt2(g.feito)}</td><td className="n">{fmt2(g.gasto)}</td>
-              <td className="n" style={{ color: Math.abs(g.saldo) < 0.005 ? SUAVE : g.saldo > 0 ? COR.verde : COR.vermelho }}>{Math.abs(g.saldo) < 0.005 ? 'sem diferença' : `${g.saldo > 0 ? 'economia' : 'estouro'} ${fmt2(Math.abs(g.saldo))}`}</td>
-              <td className="n">{pctSaldo(g.feito, g.saldo)}</td><td><Sinal cor={corGrupo(g)} /></td>
+              <td>{g.grupo} {g.nome}</td><td className="n">{fmt2(g.orcado)}</td><td className="n">{fmt2(g.feito_ac)}</td>
+              <td className="n"><Custo pago={g.pago_ac} ap={g.ap_ac} /></td><td className="n">{dif(g.saldo_ac)}</td>
+              <td className="n">{pct(g.feito_ac, g.saldo_ac)}</td><td><Sinal cor={cor(g.feito_ac, g.custo_ac)} /></td>
             </tr>
           ))}
           <tr className="total">
-            <td>Total do custo direto</td><td className="n">{fmt2(f.total.orcado)}</td><td className="n">{fmt2(f.total.feito)}</td><td className="n">{fmt2(f.total.gasto)}</td>
-            <td className="n" style={{ color: f.total.saldo >= 0 ? COR.verde : COR.vermelho }}>{f.total.saldo >= 0 ? 'economia ' : 'estouro '}{fmt2(Math.abs(f.total.saldo))}</td>
-            <td className="n">{pctSaldo(f.total.feito, f.total.saldo)}</td><td><Sinal cor={corGrupo({ ...f.total, movimento: true })} /></td>
+            <td>Total do custo direto</td><td className="n">{fmt2(t.orcado)}</td><td className="n">{fmt2(t.agregado)}</td>
+            <td className="n"><Custo pago={t.pago} ap={t.a_pagar} /></td><td className="n">{dif(m.saldoDireto)}</td>
+            <td className="n">{pct(t.agregado, m.saldoDireto)}</td><td><Sinal cor={cor(t.agregado, t.comprometido)} /></td>
           </tr>
         </tbody>
       </table>
-      <p className="conclusao">No período: {f.total.saldo >= 0 ? 'economia' : 'estouro'} de <b>{fmt2(Math.abs(f.total.saldo))}</b>.
-        No acumulado desde o início até {dmy(per.fimReal)}: valor do que foi feito {fmt2(m.tot.agregado)}, gasto {fmt2(m.tot.comprometido)},
-        {' '}<b>{m.saldoDireto >= 0 ? 'economia' : 'estouro'} de {fmt2(Math.abs(m.saldoDireto))}</b>. Um mês isolado pode mostrar estouro
-        quando paga o que foi feito no mês anterior (ou economia, quando o pagamento fica para depois).</p>
-      {comMov.length < f.grupos.length && <Nota>Os outros {f.grupos.length - comMov.length} grupos não tiveram serviço nem gasto no período.</Nota>}
-      {Math.abs(f.fora) > 0.005 && <Nota>O gasto inclui {fmt2(f.fora)} lançados em códigos fora do orçamento.</Nota>}
-      <div>
-        <div>
-          <h4>Maiores economias</h4>
-          {f.economias.length ? <table className="tab peq"><thead><tr><th>Atividade</th><th className="n">Feito</th><th className="n">Gasto</th><th className="n">Economia</th></tr></thead>
-            <tbody>{f.economias.map(linhaDif)}</tbody></table> : <p>Nenhuma.</p>}
-        </div>
-        <div>
-          <h4>Maiores estouros</h4>
-          {f.estouros.length ? <table className="tab peq"><thead><tr><th>Atividade</th><th className="n">Feito</th><th className="n">Gasto</th><th className="n">Estouro</th></tr></thead>
-            <tbody>{f.estouros.map(linhaDif)}</tbody></table> : <p>Nenhum.</p>}
-        </div>
+      {comAc.length < f.grupos.length && <Nota>Os outros {f.grupos.length - comAc.length} grupos ainda não tiveram serviço nem custo.</Nota>}
+      {(d.pFim.fora_orcamento || []).length > 0 && <Nota>O total inclui custo lançado em códigos fora do orçamento.</Nota>}
+
+      <h4>Contas a pagar lançadas{contas && contas.fechamento ? ` (fechamento ${contas.fechamento})` : ''}</h4>
+      {titulos.length ? (
+        <table className="tab peq">
+          <thead><tr><th>Fornecedor</th><th>Documento</th><th>Vencimento</th><th className="n">Valor</th><th>Entra no custo direto?</th></tr></thead>
+          <tbody>
+            {titulos.map((x) => (
+              <tr key={x.chave}>
+                <td>{x.fornecedor || '—'}</td><td>{x.num_documento || '—'}</td><td>{dmy(x.data_vencimento)}</td>
+                <td className="n">{fmt2(x.valor)}</td><td>{tipoTxt(x)}</td>
+              </tr>
+            ))}
+            <tr className="total">
+              <td colSpan={3}>Total ({contas.n_titulos} título{contas.n_titulos === 1 ? '' : 's'}) · no custo direto: {fmt2(contas.totais.custo_direto_a_pagar)}</td>
+              <td className="n">{fmt2(contas.totais.total)}</td><td />
+            </tr>
+          </tbody>
+        </table>
+      ) : <p>Nenhuma conta a pagar lançada até {fim}.</p>}
+
+      <h4>Maiores economias (acumulado)</h4>
+      {f.economias.length ? <table className="tab peq"><thead><tr><th>Atividade</th><th className="n">Feito</th><th className="n">Custo (pago + a pagar)</th><th className="n">Diferença</th></tr></thead>
+        <tbody>{f.economias.map(linhaDif)}</tbody></table> : <p>Nenhuma.</p>}
+      <h4>Maiores estouros (acumulado)</h4>
+      {f.estouros.length ? <table className="tab peq"><thead><tr><th>Atividade</th><th className="n">Feito</th><th className="n">Custo (pago + a pagar)</th><th className="n">Diferença</th></tr></thead>
+        <tbody>{f.estouros.map(linhaDif)}</tbody></table> : <p>Nenhum.</p>}
+
+      <div className="junto">
+      <h4>Só no período ({dmy(per.iniReal)} a {fim}) — informação</h4>
+      <p className="nota" style={{ marginTop: 0 }}>Pagamentos de um período podem se referir a serviços medidos em períodos anteriores (ex.: concreto e
+        aço medidos em agosto e pagos em setembro). Custo no período = pago no período + a pagar no fim − a pagar no início.</p>
+      {comMov.length ? (
+        <table className="tab peq">
+          <thead><tr><th>Grupo</th><th className="n">Feito no período</th><th className="n">Pago no período</th>
+            <th className="n">A pagar (fim − início)</th><th className="n">Custo no período</th><th className="n">Diferença</th></tr></thead>
+          <tbody>
+            {comMov.map((g) => (
+              <tr key={g.grupo}>
+                <td>{g.grupo} {g.nome}</td><td className="n">{fmt2(g.feito)}</td><td className="n">{fmt2(g.pago_p)}</td>
+                <td className="n">{fmt2(g.ap_fim)} − {fmt2(g.ap_ini)}</td><td className="n">{fmt2(g.gasto)}</td><td className="n">{dif(g.saldo)}</td>
+              </tr>
+            ))}
+            <tr className="total">
+              <td>Total</td><td className="n">{fmt2(f.total.feito)}</td><td className="n">{fmt2(f.total.pago_p)}</td>
+              <td className="n">{fmt2(f.total.ap_fim)} − {fmt2(f.total.ap_ini)}</td><td className="n">{fmt2(f.total.gasto)}</td><td className="n">{dif(f.total.saldo)}</td>
+            </tr>
+          </tbody>
+        </table>
+      ) : <p>Sem serviço nem custo no período.</p>}
       </div>
-      <Nota>Semáforo do grupo pelo rendimento do custo no período (feito ÷ gasto), nas mesmas faixas do resumo.</Nota>
+      <Nota>Semáforo do grupo pelo rendimento do custo acumulado (feito ÷ custo), nas mesmas faixas do resumo.</Nota>
     </section>
   )
 }
@@ -425,12 +481,12 @@ function Graficos({ d }) {
         series={[{ nome: 'Previsto no cronograma', cor: COR.azul, tracejado: '6,4', pontos: fisPlan },
           { nome: 'Feito (medições)', cor: TXT, largura: 2.5, pontos: fisReal }]}
         legenda={`Semanas da obra (S01 = 03/08/2026); mostra até ${S2(xMax)}. A obra toda tem ${sa.length} semanas.`} />
-      <Grafico titulo="Dinheiro — valor do que foi feito × gasto acumulado (custo direto)" xMax={per.sFim} yMax={yFin}
+      <Grafico titulo="Dinheiro — valor do que foi feito × custo acumulado (custo direto)" xMax={per.sFim} yMax={yFin}
         yFmt={(v) => (v ? `R$ ${fmtK(v)}` : '0')} marca={null}
         series={[{ nome: 'Previsto no orçamento (cronograma)', cor: COR.cinza, tracejado: '6,4', pontos: finPlan },
           { nome: 'Valor do que foi feito', cor: COR.verde, largura: 2.5, pontos: feito },
-          { nome: 'Gasto (pago + a pagar)', cor: COR.vermelho, largura: 2.5, pontos: gasto }]}
-        legenda="Linha verde acima da vermelha = a obra está gastando menos do que vale o que foi feito." />
+          { nome: 'Custo (pago + a pagar)', cor: COR.vermelho, largura: 2.5, pontos: gasto }]}
+        legenda="Linha verde acima da vermelha = a obra está custando menos do que vale o que foi feito." />
     </section>
   )
 }
@@ -530,10 +586,10 @@ function Glossario({ d, m }) {
       <dl>
         <dt>Valor do que foi feito</dt>
         <dd>Quanto vale, a preço de orçamento, o serviço já executado (no site: valor agregado). Até {fim}: {fmt2(m.tot.agregado)}.</dd>
-        <dt>Gasto</dt>
-        <dd>O que já foi pago mais o que está lançado a pagar. Até {fim}: {fmt2(m.tot.comprometido)}.</dd>
+        <dt>Custo (pago + a pagar)</dt>
+        <dd>O que já foi pago mais o que está lançado a pagar; é o custo usado em todas as comparações. Até {fim}: {custoTxt(m.tot.pago, m.tot.a_pagar)}.</dd>
         <dt>Economia / estouro</dt>
-        <dd>Valor do que foi feito menos o gasto. Positivo é economia; negativo, estouro. Até {fim}: {fmt2(m.saldoDireto)}.</dd>
+        <dd>Valor do que foi feito menos o custo (pago + a pagar). Positivo é economia; negativo, estouro. Até {fim}: {fmt2(m.saldoDireto)}.</dd>
         <dt>Rendimento do custo</dt>
         <dd>Quanto de serviço a obra entregou para cada R$ 1,00 gasto. Até {fim}: R$ {virg(m.idx.ipc)}.</dd>
         <dt>Avanço físico</dt>
@@ -563,6 +619,8 @@ html, body { background: #e6e9ed !important; color: ${TXT} !important; }
 .folha h3 { font: 600 16pt 'IBM Plex Sans'; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 2px solid ${TXT}; }
 .folha h4 { font: 600 11.5pt 'IBM Plex Sans'; margin: 14px 0 6px; }
 .folha p { margin: 0 0 8px; }
+.folha h4 { break-after: avoid; }
+.junto { break-inside: avoid; }
 .intro { color: ${SUAVE}; }
 .nota { font-size: 8.5pt; color: ${SUAVE}; margin: 8px 0; line-height: 1.4; }
 .sinal { display: inline-block; border-radius: 50%; vertical-align: middle; flex-shrink: 0;
