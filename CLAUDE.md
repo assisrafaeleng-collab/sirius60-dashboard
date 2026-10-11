@@ -360,6 +360,22 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   produtividade do Pilotis (125,89 m³ em 6 diárias = 20,98 m³/diária) → 1,5252 Hh/m³ = 65 Hh. Ritmo atual com uma só
   medição: conta a partir do início planejado.
 
+## Relatório gerencial em PDF por período (pedido 16; 11/10/2026)
+- Botão "Gerar relatório" na Visão geral (components/GerarRelatorio.jsx): data inicial e final (padrão mês anterior
+  fechado; atalhos última semana, último mês, desde o início) → /relatorio?de=&ate= (pages/relatorio.js). "Baixar PDF" =
+  impressão do navegador ("Salvar como PDF"); CSS de impressão A4 retrato, @page com cabeçalho/rodapé "Residencial
+  Sirius 60 · período · página X de Y". Sem pacote novo.
+- Mesmas contas do site: /api/painel, /api/dashboard-integrado, /api/indiretos, /api/pontos-atencao, /api/curva-s +
+  lib/projecoes.js (calcularAdiantamento saiu do Dashboard para lá; o card usa a mesma). Organização em lib/relatorio.js.
+- Período → semanas do calendário (semana da data final; números até o fim dela). "No período" = fim da semana final −
+  fim da semana anterior à inicial; gasto do período = Δ(pago + a pagar). Prazo, projeções e IDP na última medição até a
+  data final; sem medição dentro do período → cinza "sem medição desde DD/MM — atualizar" (físico também em cinza).
+- Situação da atividade: regra do painel Pontos de atenção (feito < previsto − 0,05 p.p. = atrasada), com os dias pela
+  data em que o cronograma previa chegar ao % feito. Faixas do semáforo além do rendimento (definido pelo Rafael: ≥ 1,00
+  verde, 0,95–1,00 amarelo, < 0,95 vermelho) são do relatório, escritas na página: prazo (atraso até 2 semanas
+  amarelo), indireto e projeção (estouro até 5% amarelo), atividade (atraso até 7 dias amarelo).
+- Sem siglas na tela: valor do que foi feito, gasto, rendimento do custo, avanço físico.
+
 ## IPC, IDP e projeções de custo final (pedido 14E; decisões do Rafael, 09/10/2026)
 - Conta em lib/projecoes.js; cards e painel em components/Dashboard.jsx (3ª linha: "Projeções de custo final" + IPC no
   modo Custos, + IDP no modo Avanço físico).

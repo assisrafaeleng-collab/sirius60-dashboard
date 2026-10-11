@@ -8,7 +8,8 @@ import DiarioOcorrencias from './DiarioOcorrencias'
 import PontosAtencao from './PontosAtencao'
 import CustoPorGrupo from './CustoPorGrupo'
 import CurvaSCompleta from './CurvaSCompleta'
-import { calcularIndices, projetarIndireto, calcularProjecoes, terminoPorIdp } from '../lib/projecoes'
+import GerarRelatorio from './GerarRelatorio'
+import { calcularIndices, projetarIndireto, calcularProjecoes, terminoPorIdp, calcularAdiantamento } from '../lib/projecoes'
 
 export default function Dashboard({ semana, sessao, onSemana }) {
   const [d, setD] = useState(null)
@@ -82,6 +83,7 @@ export default function Dashboard({ semana, sessao, onSemana }) {
         <span style={{ font: "500 12px 'IBM Plex Sans'", color: 'var(--text3)' }}>Mostrar</span>
         <button className={!fisico ? 'btn-primary' : 'btn-sm'} onClick={() => setMostrar('custo')}>Custos</button>
         <button className={fisico ? 'btn-primary' : 'btn-sm'} onClick={() => setMostrar('fisico')}>Avanço físico</button>
+        <GerarRelatorio />
         <span style={{ font: "500 11px 'IBM Plex Sans'", color: 'var(--text3)' }}>
           avanço físico = horas executadas ÷ {Math.round(horasOrcadas || 0).toLocaleString('pt-BR')} h orçadas (parcela de produção)
         </span>
@@ -157,32 +159,7 @@ const PILL = { background: 'rgba(255,255,255,0.07)', padding: '3px 8px', borderR
 const fmtIdx = v => (v == null || !isFinite(v) ? '—' : v.toFixed(2).replace('.', ','))   // índices com 2 casas
 const pc2 = v => fmtPct(v, 2)
 
-// Adiantamento (Flats): curva = semanas_alinhadas (hh_planejado = curva do cronograma, hh_realizado = medições)
-function calcularAdiantamento(curva, semMedida) {
-  const iMed = curva.findIndex(c => c.semana_numero === semMedida)
-  const real = iMed >= 0 ? curva[iMed].hh_realizado : null
-  if (real == null || !(real > 0)) return null
-  const dia = iso => Date.parse(iso.slice(0, 10)) / 864e5
-  let wEq = null, diaEq = null
-  for (let i = 0; i < curva.length; i += 1) {
-    const pl = curva[i].hh_planejado || 0
-    if (pl < real) continue
-    const ant = i > 0 ? curva[i - 1] : null
-    const plAnt = ant ? ant.hh_planejado || 0 : 0
-    const f = pl - plAnt > 1e-9 ? (real - plAnt) / (pl - plAnt) : 1
-    const wAnt = ant ? ant.semana_numero : curva[i].semana_numero - 1
-    const dAnt = ant ? dia(datasDaSemana(ant.semana_numero).data_fim) : dia(datasDaSemana(curva[i].semana_numero).data_inicio) - 1
-    wEq = wAnt + f * (curva[i].semana_numero - wAnt)
-    diaEq = dAnt + f * (dia(datasDaSemana(curva[i].semana_numero).data_fim) - dAnt)
-    break
-  }
-  if (wEq == null) return null
-  const semanas = wEq - semMedida
-  const dias = Math.round(diaEq - dia(datasDaSemana(semMedida).data_fim))
-  const fim = datasDaSemana(curva[curva.length - 1].semana_numero).data_fim
-  const termino = new Date((dia(fim) - dias) * 864e5).toISOString().slice(0, 10)
-  return { semanas, dias, real, wEq, termino, fim, semMed: semMedida }
-}
+// Adiantamento (Flats): lib/projecoes.js calcularAdiantamento (o relatório gerencial usa a mesma conta)
 
 function Kpis({ k, semana, painel, painelMed, mostrar, curva }) {
   const router = useRouter()
