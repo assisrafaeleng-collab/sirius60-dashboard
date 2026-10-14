@@ -71,7 +71,7 @@ export default function AvancoFisico() {
       const desvio = l.perc_real - l.perc_plan
       if (filtro === 'ativos' && l.perc_plan <= 0 && !l.medido) return
       if (filtro === 'atrasados' && !(desvio < -5)) return
-      if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + rotuloPavimento(l.pavimento, l.grupo_num)).toLowerCase().includes(q)) return
+      if (q && !(l.descricao + ' ' + l.codigo_eap + ' ' + l.grupo_nome + ' ' + rotuloPavimento(l.pavimento, l.codigo_eap)).toLowerCase().includes(q)) return
       pv.servicos.push({ ...l, desvio })
     })
     return Object.values(grupos).sort((a, b) => a.num - b.num).map(g => {
@@ -296,7 +296,7 @@ export default function AvancoFisico() {
                           const onP = !!aberto[kp]
                           return (
                             <div key={kp}>
-                              <Cab nivel={1} titulo={rotuloPavimento(pv.nome, g.num)}on={onP} ag={pv.ag} sub={subDe(pv, true)}
+                              <Cab nivel={1} titulo={rotuloPavimento(pv.nome, pv.todas[0] && pv.todas[0].codigo_eap)} on={onP} ag={pv.ag} sub={subDe(pv, true)}
                                    onClick={() => setAberto(a => ({ ...a, [kp]: !a[kp] }))} />
                               {onP && tabelaServicos(pv.servicos)}
                             </div>

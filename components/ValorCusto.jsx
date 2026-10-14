@@ -130,7 +130,7 @@ export function somar(ls) {
   return t
 }
 
-// Resumo da VERBA DE FORMA (material) — pedido 14A: as 13 linhas de material de forma são uma verba única
+// Resumo da VERBA DE FORMA (material) — pedido 14A: as linhas de material de forma são uma verba única
 // (reaproveitamento da madeira). v = painel.totais.verba_forma. Desde 11/10 (Rafael) a verba segue a regra de material
 // do Flats: valor agregado = maior entre o aplicado na obra (% do serviço × orçado) e o gasto limitado à verba, então a
 // compra antecipada fica neutra; estouro só se o gasto passar da verba. Mostra o comprado e o aplicado em % da verba.
@@ -181,12 +181,12 @@ export function ResumoVerbaForma({ v }) {
 // Nível PAVIMENTO (Rafael 11/10): grupo com mais de um pavimento → pavimento → linhas, cada pavimento com subtotal.
 // itens = todas as linhas do grupo (as somas usam todas); visivel(i) diz se a linha aparece. Pavimento só com linhas
 // que não aparecem (título do orçamento, R$ 0) não conta nem aparece. Grupo com um pavimento só: null (direto nas
-// linhas). Ordem de PAVIMENTOS; rótulo de rotuloPavimento (estrutura 3.1 = "Subsolo / Pilotis").
+// linhas). Ordem de PAVIMENTOS; rótulo de rotuloPavimento pelo código da linha (3.1.x no Subsolo = "Subsolo / Pilotis").
 export function porPavimento(itens, grupo, visivel) {
   const mapa = new Map()
   itens.forEach((i) => {
     const k = i.pavimento || '—'
-    if (!mapa.has(k)) mapa.set(k, { pavimento: k, rotulo: rotuloPavimento(i.pavimento, grupo) || '—', todas: [] })
+    if (!mapa.has(k)) mapa.set(k, { pavimento: k, rotulo: rotuloPavimento(i.pavimento, i.codigo_eap) || '—', todas: [] })
     mapa.get(k).todas.push(i)
   })
   const pavs = Array.from(mapa.values()).filter((p) => p.todas.some(visivel))

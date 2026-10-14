@@ -26,7 +26,7 @@ export default function ListaLancamentos({ lancamentos, rotuloPago = true }) {
     <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', margin: '0 0 8px' }}>
       {lanc.length > 0 && lanc[0].verba_forma_pct != null && (
         <div style={{ fontSize: 11, color: CINZA, padding: '0 0 6px', borderBottom: '1px solid var(--border)' }}
-             title="Material de forma é uma verba única da estrutura (reaproveitamento da madeira): os lançamentos das 13 linhas formam o gasto da verba, e cada linha fica com a parte do seu orçado">
+             title="Material de forma é uma verba única da estrutura (reaproveitamento da madeira): os lançamentos de todas as linhas de material de forma formam o gasto da verba, e cada linha fica com a parte do seu orçado">
           verba de forma rateada: {String(lanc[0].verba_forma_pct).replace('.', ',')}% do gasto total da verba
           (valores abaixo já multiplicados por essa fatia; cada lançamento continua gravado na linha original)
         </div>

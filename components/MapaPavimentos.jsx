@@ -34,6 +34,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
       if (!m[i.p][i.g]) m[i.p][i.g] = { peso: 0, custo: 0, horas: 0, plan: 0, real: 0,
                                         itens: 0, medidos: 0, ativos: 0 }
       const c = m[i.p][i.g]
+      if (!c.codigo) c.codigo = i.i      // código de uma linha da célula, para o rótulo do pavimento
       const med = medido[`${i.i}|${i.p}`]
       const w = pesoDe(i)
       c.peso += w
@@ -118,7 +119,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
                         onMouseLeave={() => setFoco(null)}
                         title={cel.tipo === 'sembase'
                           ? `Em andamento, mas sem ${porHora ? 'horas' : 'custo'} no cronograma — troque a base para medir`
-                          : rotuloPavimento(pav, g) !== pav ? rotuloPavimento(pav, g) : undefined}
+                          : rotuloPavimento(pav, cel.c.codigo) !== pav ? rotuloPavimento(pav, cel.c.codigo) : undefined}
                         style={{ background: cor.bg, color: cor.tx, borderRadius: 5,
                                  textAlign: 'center', padding: '9px 4px', cursor: 'default',
                                  font: '600 11px var(--mono)',
@@ -145,7 +146,7 @@ export default function MapaPavimentos({ itens, medido, semana, base }) {
                         padding: '10px 14px', background: 'var(--bg3)', borderRadius: 9,
                         border: '1px solid var(--border)' }}>
             <div style={{ font: '600 12px "IBM Plex Sans"' }}>
-              {rotuloPavimento(foco.pav, foco.g)} · {SIGLA[foco.g] || foco.g}
+              {rotuloPavimento(foco.pav, foco.c && foco.c.codigo)} · {SIGLA[foco.g] || foco.g}
             </div>
             {foco.tipo === 'sembase' ? (
               <div style={{ fontSize: 12, color: 'var(--amber-tx)' }}>

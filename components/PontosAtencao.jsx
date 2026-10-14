@@ -443,7 +443,7 @@ export default function PontosAtencao({ semana }) {
                         const kp = `${kg}|${p}`
                         return (
                           <React.Fragment key={kp}>
-                            {cabGrupo(kp, rotuloPavimento(p, g.num), resumoGrupo(itens), 1)}
+                            {cabGrupo(kp, rotuloPavimento(p, itens[0] && itens[0].codigo_eap), resumoGrupo(itens), 1)}
                             {grupos.has(kp) && itens.map(linhaAtividade)}
                           </React.Fragment>
                         )

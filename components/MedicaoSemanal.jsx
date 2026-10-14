@@ -57,7 +57,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
       if (filtro === 'semana' && !(i.a <= semana && i.b >= semana)) return false
       if (filtro === 'andamento' && !(i._acum > 0 && i._acum < 100)) return false
       if (!q) return true
-      return (i.d + ' ' + i.i + ' ' + i.n + ' ' + rotuloPavimento(i.p, i.g)).toLowerCase().includes(q)
+      return (i.d + ' ' + i.i + ' ' + i.n + ' ' + rotuloPavimento(i.p, i.i)).toLowerCase().includes(q)
     })
   }, [itens, med, semana, filtro, busca, materiais])
 
@@ -254,7 +254,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13 }}>{i.d}</div>
                   <div className="kpi-sub">
-                    {rotuloPavimento(i.p, i.g)} · S{i.a}–S{i.b} · {i.q.toLocaleString('pt-BR',
+                    {rotuloPavimento(i.p, i.i)} · S{i.a}–S{i.b} · {i.q.toLocaleString('pt-BR',
                       { maximumFractionDigits: 1 })} {i.u} · {fmtMoedaK(i.c)}
                   </div>
                 </div>
