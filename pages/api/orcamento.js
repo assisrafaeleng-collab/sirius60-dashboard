@@ -1,11 +1,11 @@
 import { supabase, supabasePronto } from '../../lib/supabase'
-import { OBRA } from '../../lib/constants'
+import { OBRA, compararLinhas } from '../../lib/constants'
 
 // Orçamento da obra lido do banco (fonte única), no MESMO formato do antigo public/dados.json,
 // para as telas trocarem só o endereço:
 //   g grupo · n nome do grupo · p pavimento · i código EAP · d descrição · q quantidade · u unidade
 //   c custo orçado · h horas (Hh) · a semana de início · b semana de fim · k Hh por unidade
-// Diretos (grupos 1–18): orcamento_planejado, na ordem do id (a mesma do dados.json).
+// Diretos (grupos 1–18): orcamento_planejado, na ordem do código da EAP (pedido 18, item 7; antes: ordem do id).
 // Indiretos (grupo 19): custos_indiretos_planejados.
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
@@ -24,7 +24,7 @@ export default async function handler(req, res) {
     if (indRes.error) throw new Error(indRes.error.message)
 
     const num = v => (v == null ? 0 : parseFloat(v))
-    const diretos = (dirRes.data || []).map(o => {
+    const diretos = [...(dirRes.data || [])].sort(compararLinhas).map(o => {
       const q = num(o.quantidade), h = num(o.hh)
       return {
         g: o.grupo_num, n: o.grupo_nome, p: o.pavimento, i: o.codigo_eap, d: o.descricao,

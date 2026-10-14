@@ -10,7 +10,7 @@
 import Head from 'next/head'
 import { useRouter } from 'next/router'
 import React, { useEffect, useState } from 'react'
-import { OBRA, fmtMoeda2, fmtP1, rotuloPavimento, hojeSaoPaulo } from '../lib/constants'
+import { OBRA, fmtMoeda2, fmtP1, hojeSaoPaulo } from '../lib/constants'
 import { datasDaSemana, totalSemanas } from '../lib/calendario'
 import { calcularIndices, projetarIndireto, calcularProjecoes, calcularAdiantamento } from '../lib/projecoes'
 import { periodoEmSemanas, ultimaMedicaoAte, fisicoDoPeriodo, financeiroDoPeriodo, motivoDaDiferenca, caixa30,
@@ -33,7 +33,7 @@ const S2 = (n) => `S${String(n).padStart(2, '0')}`
 const descCurta = (d) => String(d || '').replace(/\s*-?\s*\((M[ãa]o de Obra|Apenas Material|Material)\)\s*$/i, '').trim()
 // custo sempre separado e somado (Rafael 11/10): "R$ X (pago R$ Y + a pagar R$ Z)"
 const custoTxt = (pago, ap, f = fmt2) => `${f((pago || 0) + (ap || 0))} (pago ${f(pago || 0)} + a pagar ${f(ap || 0)})`
-const nomeAtiv = (l) => `${l.codigo_eap} · ${descCurta(l.descricao)} · ${rotuloPavimento(l.pavimento, l.codigo_eap)}`
+const nomeAtiv = (l) => `${l.codigo_eap} · ${descCurta(l.descricao)} · ${l.pavimento}`
 
 async function pegar(url) {
   const r = await fetch(url)
@@ -113,6 +113,19 @@ function montar(d) {
   const indReal = indPago + indAPagar
   const saldoInd = indPlan - indReal
   const pctInd = indPlan > 0 ? 100 * saldoInd / indPlan : null
+  // diferença do indireto separada (pedido 18), pelas categorias da /api/indiretos até o fim do período:
+  //   a pagar = pontuais previstos e não pagos + saldo dos pontuais pagos em parte ("valor a informar");
+  //   sem lançamento = recorrentes previstos sem nenhum lançamento; economia real = o resto (decide o semáforo)
+  const cats = (indFim.categorias || []).filter((c) => !c.reserva)
+  const realC = (c) => (Number(c.pago) || 0) + (Number(c.a_pagar) || 0)
+  const indNaoPago = cats.filter((c) => !c.recorrente && realC(c) < 0.005 && c.acumulado > 0.005)
+  const indParcial = cats.filter((c) => !c.recorrente && realC(c) > 0.005 && realC(c) < c.acumulado - 0.005)
+  const indSemLanc = cats.filter((c) => c.recorrente && realC(c) < 0.005 && c.acumulado > 0.005)
+  const somaC = (ls, f) => ls.reduce((t, c) => t + f(c), 0)
+  const indAPagarPrev = somaC(indNaoPago, (c) => c.acumulado) + somaC(indParcial, (c) => c.acumulado - realC(c))
+  const indSemLancV = somaC(indSemLanc, (c) => c.acumulado)
+  const indEconomiaReal = saldoInd - indAPagarPrev - indSemLancV
+  const indPendencias = indParcial.length + indSemLanc.length
   // b) prazo na semana da última medição (como os cards)
   const medNoPeriodo = med && med.semana >= per.sIni
   const adi = med ? calcularAdiantamento(dash.semanas_alinhadas || [], med.semana) : null
@@ -125,7 +138,9 @@ function montar(d) {
   const cx = caixa30(pa)
   const fis = fisicoDoPeriodo(pFim, pAntes, per.fimReal, !!med && !medNoPeriodo, med ? med.data : null)
   const fin = financeiroDoPeriodo(pFim, pAntes)
-  return { k, tot, idx, saldoDireto, indPlan, indPago, indAPagar, indReal, saldoInd, pctInd, medNoPeriodo, adi, idxMed, proj, cx, fis, fin }
+  const indProj = indMed ? projetarIndireto(indMed.categorias) : null
+  return { k, tot, idx, saldoDireto, indPlan, indPago, indAPagar, indReal, saldoInd, pctInd, indNaoPago, indParcial, indSemLanc,
+    indAPagarPrev, indSemLancV, indEconomiaReal, indPendencias, indProj, medNoPeriodo, adi, idxMed, proj, cx, fis, fin }
 }
 
 function Conteudo({ d }) {
@@ -144,10 +159,18 @@ function Conteudo({ d }) {
 }
 
 /* ─── PEÇAS ─────────────────────────────────────────────────────────────────────── */
-const ROT_COR = { verde: 'bom', amarelo: 'atenção', vermelho: 'problema', cinza: 'sem dado', azul: 'informação' }
-function Sinal({ cor, grande }) {
+// Semáforo (pedido 18): bolinha em SVG (sai colorida na impressão mesmo sem "gráficos de plano de fundo") e a palavra
+// ao lado (OK / atenção / problema / sem dado), para ler também em preto e branco. semPalavra: quando o texto ao lado
+// já diz a situação (legenda da capa, situação da atividade).
+const PALAVRA = { verde: 'OK', amarelo: 'atenção', vermelho: 'problema', cinza: 'sem dado', azul: 'informação' }
+function Sinal({ cor, grande, semPalavra, palavra }) {
   const t = grande ? 16 : 10
-  return <span className="sinal" title={ROT_COR[cor]} style={{ width: t, height: t, background: COR[cor] || COR.cinza }} />
+  return (
+    <span className="sinal">
+      <svg width={t} height={t} viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="5" fill={COR[cor] || COR.cinza} /></svg>
+      {!semPalavra && <span className="palavra" style={{ color: COR[cor] || COR.cinza }}>{palavra || PALAVRA[cor] || ''}</span>}
+    </span>
+  )
 }
 const Nota = ({ children }) => <div className="nota">{children}</div>
 
@@ -171,10 +194,10 @@ function Capa({ d }) {
           {per.ajusteIni ? `; a data inicial vai do começo da semana (${dmy(per.iniReal)})` : ''}.</Nota>
       )}
       <div className="capa-legenda">
-        <div><Sinal cor="verde" /> verde = bom</div>
-        <div><Sinal cor="amarelo" /> amarelo = atenção</div>
-        <div><Sinal cor="vermelho" /> vermelho = problema</div>
-        <div><Sinal cor="cinza" /> cinza = sem dado no período</div>
+        <div><Sinal cor="verde" semPalavra /> verde = OK</div>
+        <div><Sinal cor="amarelo" semPalavra /> amarelo = atenção</div>
+        <div><Sinal cor="vermelho" semPalavra /> vermelho = problema</div>
+        <div><Sinal cor="cinza" semPalavra /> cinza = sem dado no período</div>
       </div>
     </section>
   )
@@ -207,27 +230,39 @@ function Resumo({ d, m }) {
             serviços medidos em períodos anteriores.</div></> }
     : { cor: 'cinza', grande: 'sem dado', frase: 'Ainda não há serviço medido até a data final.' }
   // indireto
-  const ci = m.indPlan > 0 ? corSaldoPct(m.pctInd) : 'cinza'
-  const aRealizar = m.k.custo_indireto_a_realizar || 0
+  // semáforo do indireto pela economia REAL; com valor a informar (pago em parte) ou recorrente sem lançamento: amarelo
+  const ci = !(m.indPlan > 0) ? 'cinza' : m.indPendencias > 0 ? 'amarelo' : corSaldoPct(100 * m.indEconomiaReal / m.indPlan)
+  const nomes = (ls) => {
+    const n = ls.map((c) => c.categoria.replace(/\s*\(.*\)\s*/g, ' ').trim().toLowerCase())
+    return n.slice(0, 3).join(', ') + (n.length > 3 ? '…' : '')
+  }
   // b) prazo
-  const semMed = !med || !m.medNoPeriodo
   const adi = m.adi
+  const desatualizada = med && med.data && per.fimReal > med.data
+  const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+  const mesDepois = med && med.data ? MESES[new Date(Date.parse(med.data + 'T12:00:00Z') + 864e5).getUTCMonth()] : ''
+  const avisoMed = med ? <div className="motivo" style={{ marginTop: 4 }}>Última medição em {dm(med.data)}. Sem medição depois disso, o relatório não
+    mostra o atraso que pode ter acontecido em {mesDepois}.</div> : null
   const b = !med ? { cor: 'cinza', grande: 'sem medição', frase: 'Ainda não há medição de serviço até a data final.' }
-    : semMed ? { cor: 'cinza', grande: 'sem medição no período',
+    : desatualizada ? { cor: 'amarelo', grande: 'medição desatualizada',
         frase: <>Sem medição desde {dmy(med.data)} — atualizar. Na última medição: {pc1(pMed.avanco.realizado)} feito ×
-          {' '}{pc1(pMed.avanco.planejado)} previsto{adi ? `; ${adi.semanas >= 0 ? 'adiantada' : 'atrasada'} ${virg(Math.abs(adi.semanas), 1)} semana(s)` : ''}.</> }
+          {' '}{pc1(pMed.avanco.planejado)} previsto{adi ? `; ${adi.semanas >= 0 ? 'adiantada' : 'atrasada'} ${virg(Math.abs(adi.semanas), 1)} semana(s)` : ''}.{avisoMed}</> }
     : { cor: corPrazo(adi ? adi.semanas : null),
         grande: adi ? `${adi.semanas >= 0 ? 'adiantada' : 'atrasada'} ${virg(Math.abs(adi.semanas), 1)} semana${Math.abs(adi.semanas) >= 1.95 ? 's' : ''}` : 'sem cálculo',
         frase: <>Avanço físico (horas de trabalho): <b>{pc1(pMed.avanco.realizado)}</b> feito × {pc1(pMed.avanco.planejado)} previsto
-          na medição de {dmy(med.data)}.{adi ? <> Término projetado <b>{dmy(adi.termino)}</b> (cronograma: {dmy(adi.fim)}), se o ritmo for mantido.</> : ''}</> }
+          na medição de {dmy(med.data)}.{adi ? <> Término projetado <b>{dmy(adi.termino)}</b> (cronograma: {dmy(adi.fim)}), se o ritmo for mantido.</> : ''}{avisoMed}</> }
   // c) caixa
   const cx = m.cx
   // d) projeção
   const p = m.proj
   const cen = p ? p.cenarios : null
   const totais = cen ? [cen.otimista.total, cen.tendencia.total, cen.pessimista.total].filter((x) => x != null) : []
-  const dCor = cen && cen.otimista.saldo_total != null ? corSaldoPct(cen.otimista.saldo_total_pct) : 'cinza'
   const pouco = pMed && pMed.avanco.realizado < 15
+  // a reserva (19.1.25) não usada não é economia (pedido 18): economia SEM a reserva é o número principal
+  const reservaLivre = m.indProj ? m.indProj.reserva_livre : 0
+  const semReserva = cen && cen.otimista.saldo_total != null ? cen.otimista.saldo_total - reservaLivre : null
+  const semReservaPct = semReserva != null && p.orcamento_total > 0 ? 100 * semReserva / p.orcamento_total : null
+  const dCor = semReserva != null ? corSaldoPct(semReservaPct) : 'cinza'
   return (
     <section className="folha">
       <h3>Resumo do período</h3>
@@ -235,14 +270,17 @@ function Resumo({ d, m }) {
         <Pergunta q="Estamos gastando menos do que deveríamos? (custo direto)" cor={a.cor} grande={a.grande} frase={a.frase}>
           <div className="frase" style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${LINHA}` }}>
             <Sinal cor={ci} /> <b>Custo indireto</b> (administração, projetos, taxas, terreno): {m.indPlan > 0
-              ? <>previsto {mil(m.indPlan)} × custo {custoTxt(m.indPago, m.indAPagar, mil)} até {fim} → {mil(m.saldoInd)} {m.saldoInd >= 0 ? 'abaixo' : 'acima'} do previsto ({pc1(Math.abs(m.pctInd))}).
-                {aRealizar > 0.005 && <> Inclui {mil(aRealizar)} previstos e ainda não pagos: não é economia de verdade.</>}</>
+              ? <>previsto {mil(m.indPlan)} × custo {custoTxt(m.indPago, m.indAPagar, mil)} até {fim}. Diferença {mil(m.saldoInd)} =
+                {' '}<b>{mil(m.indAPagarPrev)} a pagar</b> ({nomes([...m.indNaoPago, ...m.indParcial])})
+                {' '}+ <b>{mil(m.indSemLancV)} sem lançamento</b> ({nomes(m.indSemLanc)})
+                {' '}+ <b>{mil(m.indEconomiaReal)} de {m.indEconomiaReal >= -0.005 ? 'economia' : 'estouro'} real</b>.
+                {m.indPendencias > 0 && <> Pendências a lançar (valores a informar e recorrentes sem lançamento).</>}</>
               : 'sem previsão até a data final.'}
           </div>
         </Pergunta>
         <Pergunta q="A obra está no prazo?" cor={b.cor} grande={b.grande} frase={b.frase} />
         <Pergunta q="Quanto vamos precisar no próximo mês?" cor="azul" grande={mil(cx.total)}
-          frase={<>Dinheiro previsto de {dmy(cx.de)} a {dmy(cx.ate)} (30 dias depois da data final), na mesma conta do painel
+          frase={<>Dinheiro previsto de {dmy(cx.de)} a {dmy(cx.ate)} (30 dias depois {per.ajusteFim ? `do fim da semana da data final, ${dmy(per.fimReal)}` : 'da data final'}), na mesma conta do painel
             “Pontos de atenção”.</>}>
           <table className="mini">
             <tbody>
@@ -256,11 +294,13 @@ function Resumo({ d, m }) {
         <Pergunta q="Quanto a obra vai custar no final?" cor={dCor}
           grande={cen && cen.otimista.total != null ? mil(cen.otimista.total) : 'sem projeção'}
           frase={cen && cen.otimista.total != null ? <>
-            Se mantivermos o ritmo atual, a obra deve terminar com <b>{cen.otimista.saldo_total >= 0 ? 'economia' : 'estouro'} de
-            {' '}{mil(cen.otimista.saldo_total)} ({pc1(Math.abs(cen.otimista.saldo_total_pct))})</b> sobre o orçamento de {mil(p.orcamento_total)}.
-            Faixa entre {mil(Math.min(...totais))} e {mil(Math.max(...totais))} nos outros cenários. Base: medição de {dmy(med.data)};
+            Se o que falta custar o que está orçado, a obra termina em <b>{mil(cen.otimista.total)}</b>: <b>{semReserva >= 0 ? 'economia' : 'estouro'} de
+            {' '}{mil(semReserva)} ({pc1(Math.abs(semReservaPct))})</b> sobre o orçamento de {mil(p.orcamento_total)}, sem contar a reserva
+            {' '}({mil(cen.otimista.saldo_direto)} do custo direto + {mil(semReserva - cen.otimista.saldo_direto)} do indireto, que são os
+            {' '}recorrentes ainda sem lançamento). <b>Reserva disponível {mil(reservaLivre)}</b> (mão de obra de apoio), ainda não usada — não é economia.
+            {!pouco && <> Faixa entre {mil(Math.min(...totais))} e {mil(Math.max(...totais))} nos outros cenários.</>} Base: medição de {dmy(med.data)};
             o custo até lá, {custoTxt(pMed.totais.pago, pMed.totais.a_pagar, mil)}, já está na projeção: <b>inclui {mil(pMed.totais.a_pagar)} já lançados a pagar</b>.
-            {pouco && <span style={{ color: COR.amarelo }}> Projeção pouco confiável com menos de 15% de avanço (hoje {pc1(pMed.avanco.realizado)}).</span>}
+            {pouco && <span style={{ color: COR.amarelo }}> Projeção pouco confiável com menos de 15% de avanço (hoje {pc1(pMed.avanco.realizado)}); os outros cenários ficam no site.</span>}
           </> : 'Sem medição ainda: não há projeção.'} />
       </div>
       <Nota>Semáforo: rendimento do custo verde a partir de R$ 1,00 por R$ 1,00 gasto, amarelo de R$ 0,95 a R$ 1,00, vermelho abaixo
@@ -286,13 +326,13 @@ function Fisico({ d, m }) {
           <thead><tr><th>Atividade</th><th className="n">Previsto</th><th className="n">Feito</th><th>Situação</th></tr></thead>
           {f.grupos.map((g) => (
             <tbody key={`${g.grupo}|${g.pavimento}`}>
-              <tr className="grupo"><td colSpan={4}>{g.grupo} {g.nome}{g.pavimento ? ` · ${rotuloPavimento(g.pavimento, 3)}` : ''}</td></tr>
+              <tr className="grupo"><td colSpan={4}>{g.grupo} {g.nome}{g.pavimento ? ` · ${g.pavimento}` : ''}</td></tr>
               {g.itens.map((l) => (
                 <tr key={l.id}>
-                  <td>{l.codigo_eap} · {descCurta(l.descricao)}{g.pavimento ? '' : ` · ${rotuloPavimento(l.pavimento, l.codigo_eap)}`}</td>
+                  <td>{l.codigo_eap} · {descCurta(l.descricao)}{g.pavimento ? '' : ` · ${l.pavimento}`}</td>
                   <td className="n">{pc1(l.perc_plan)}</td>
                   <td className="n">{pc1(l.perc_real)}</td>
-                  <td><Sinal cor={l.situacao.cor} /> {l.situacao.texto}</td>
+                  <td><Sinal cor={l.situacao.cor} semPalavra /> {l.situacao.texto}</td>
                 </tr>
               ))}
             </tbody>
@@ -307,7 +347,7 @@ function Fisico({ d, m }) {
       {f.total > 0 && m.medNoPeriodo && (
         <p className="conclusao">
           <b>{f.emDia} de {f.total}</b> atividades previstas estão em dia (concluídas, em dia ou adiantadas).{' '}
-          {preoc.length ? <>As maiores preocupações são {preoc.map((l, i) => <span key={l.id}>{i ? (i === preoc.length - 1 ? ' e ' : ', ') : ''}<b>{descCurta(l.descricao)} ({rotuloPavimento(l.pavimento, l.codigo_eap)})</b>, {l.situacao.texto}</span>)}.</>
+          {preoc.length ? <>As maiores preocupações são {preoc.map((l, i) => <span key={l.id}>{i ? (i === preoc.length - 1 ? ' e ' : ', ') : ''}<b>{descCurta(l.descricao)} ({l.pavimento})</b>, {l.situacao.texto}</span>)}.</>
             : 'Nenhuma atividade prevista está atrasada.'}
         </p>
       )}
@@ -403,23 +443,39 @@ function Financeiro({ d, m }) {
       {comMov.length ? (
         <table className="tab peq">
           <thead><tr><th>Grupo</th><th className="n">Feito no período</th><th className="n">Pago no período</th>
-            <th className="n">A pagar (fim − início)</th><th className="n">Custo no período</th><th className="n">Diferença</th></tr></thead>
+            <th className="n">A pagar (fim − início)</th><th className="n">Custo no período</th><th className="n">Diferença</th>
+            <th className="n" title="Custo do período ÷ feito do período">Custo por R$ 1 feito</th><th /></tr></thead>
           <tbody>
-            {comMov.map((g) => (
-              <tr key={g.grupo}>
-                <td>{g.grupo} {g.nome}</td><td className="n">{fmt2(g.feito)}</td><td className="n">{fmt2(g.pago_p)}</td>
-                <td className="n">{fmt2(g.ap_fim)} − {fmt2(g.ap_ini)}</td><td className="n">{fmt2(g.gasto)}</td><td className="n">{dif(g.saldo)}</td>
-              </tr>
-            ))}
+            {comMov.map((g) => {
+              const anterior = g.saldo < -0.005 && g.saldo_ac >= -0.005      // estouro do mês, acumulado sem estouro
+              return (
+                <tr key={g.grupo}>
+                  <td>{g.grupo} {g.nome}{anterior && <div className="motivo">pagamento de serviço de meses anteriores (no acumulado: {g.saldo_ac > 0.005 ? `economia ${fmt2(g.saldo_ac)}` : 'sem diferença'})</div>}</td>
+                  <td className="n">{fmt2(g.feito)}</td><td className="n">{fmt2(g.pago_p)}</td>
+                  <td className="n">{fmt2(g.ap_fim)} − {fmt2(g.ap_ini)}</td><td className="n">{fmt2(g.gasto)}</td><td className="n">{dif(g.saldo)}</td>
+                  <td className="n">{g.feito > 0.005 ? `R$ ${virg(g.gasto / g.feito)}` : '—'}</td>
+                  <td><Sinal cor={anterior ? 'amarelo' : cor(g.feito, g.gasto)} /></td>
+                </tr>
+              )
+            })}
             <tr className="total">
-              <td>Total</td><td className="n">{fmt2(f.total.feito)}</td><td className="n">{fmt2(f.total.pago_p)}</td>
+              <td>Total (sem as neutras)</td><td className="n">{fmt2(f.total.feito)}</td><td className="n">{fmt2(f.total.pago_p)}</td>
               <td className="n">{fmt2(f.total.ap_fim)} − {fmt2(f.total.ap_ini)}</td><td className="n">{fmt2(f.total.gasto)}</td><td className="n">{dif(f.total.saldo)}</td>
+              <td className="n">{f.total.feito > 0.005 ? `R$ ${virg(f.total.gasto / f.total.feito)}` : '—'}</td><td />
             </tr>
+            {f.neutras.gasto > 0.005 && (
+              <tr>
+                <td>Compras antecipadas / locação<div className="motivo">neutras: não contam como feito nem como estouro ({f.neutras.grupos.join(', ')})</div></td>
+                <td className="n">—</td><td className="n">{fmt2(f.neutras.pago_p)}</td><td className="n">{fmt2(f.neutras.ap_fim)} − {fmt2(f.neutras.ap_ini)}</td>
+                <td className="n">{fmt2(f.neutras.gasto)}</td><td className="n">neutro</td><td className="n">—</td><td />
+              </tr>
+            )}
           </tbody>
         </table>
       ) : <p>Sem serviço nem custo no período.</p>}
       </div>
-      <Nota>Semáforo do grupo pelo rendimento do custo acumulado (feito ÷ custo), nas mesmas faixas do resumo.</Nota>
+      <Nota>Semáforo do grupo pelo rendimento do custo (feito ÷ custo), nas mesmas faixas do resumo. No período, o estouro que vem de
+        pagamento de serviço de meses anteriores fica amarelo: o semáforo que vale é o do acumulado.</Nota>
     </section>
   )
 }
@@ -444,7 +500,7 @@ function Grafico({ titulo, series, xMax, yMax, yFmt, marca, marcaTxt, legenda })
         {series.map((s) => {
           const pts = s.pontos.filter((p) => p.v != null && isFinite(p.v) && p.s <= xMax)
           if (!pts.length) return null
-          return <polyline key={s.nome} fill="none" stroke={s.cor} strokeWidth={s.largura || 2} strokeDasharray={s.tracejado || undefined}
+          return <polyline key={s.nome} fill="none" stroke={s.cor} strokeWidth={s.largura || 2} strokeDasharray={s.tracejado || undefined} strokeLinecap="round"
             points={pts.map((p) => `${x(p.s).toFixed(1)},${y(Math.min(p.v, yMax)).toFixed(1)}`).join(' ')} />
         })}
       </svg>
@@ -478,15 +534,15 @@ function Graficos({ d }) {
       <h3>Gráficos</h3>
       <Grafico titulo="Avanço da obra — previsto × feito (% das horas de trabalho da obra)" xMax={xMax} yMax={yFis}
         yFmt={(v) => `${virg(v, 1)}%`} marca={per.sFim} marcaTxt={`fim do período ${dm(per.fimReal)}`}
-        series={[{ nome: 'Previsto no cronograma', cor: COR.azul, tracejado: '6,4', pontos: fisPlan },
-          { nome: 'Feito (medições)', cor: TXT, largura: 2.5, pontos: fisReal }]}
+        series={[{ nome: 'Previsto no cronograma (tracejada)', cor: COR.azul, tracejado: '6,4', pontos: fisPlan },
+          { nome: 'Feito nas medições (contínua)', cor: TXT, largura: 2.5, pontos: fisReal }]}
         legenda={`Semanas da obra (S01 = 03/08/2026); mostra até ${S2(xMax)}. A obra toda tem ${sa.length} semanas.`} />
       <Grafico titulo="Dinheiro — valor do que foi feito × custo acumulado (custo direto)" xMax={per.sFim} yMax={yFin}
         yFmt={(v) => (v ? `R$ ${fmtK(v)}` : '0')} marca={null}
-        series={[{ nome: 'Previsto no orçamento (cronograma)', cor: COR.cinza, tracejado: '6,4', pontos: finPlan },
-          { nome: 'Valor do que foi feito', cor: COR.verde, largura: 2.5, pontos: feito },
-          { nome: 'Custo (pago + a pagar)', cor: COR.vermelho, largura: 2.5, pontos: gasto }]}
-        legenda="Linha verde acima da vermelha = a obra está custando menos do que vale o que foi feito." />
+        series={[{ nome: 'Previsto no orçamento (tracejada)', cor: COR.cinza, tracejado: '6,4', pontos: finPlan },
+          { nome: 'Valor do que foi feito (contínua)', cor: COR.verde, largura: 2.5, pontos: feito },
+          { nome: 'Custo, pago + a pagar (pontilhada)', cor: COR.vermelho, largura: 2.5, tracejado: '1.5,3', pontos: gasto }]}
+        legenda="Quando a linha do valor do que foi feito fica acima da linha do custo, a obra está custando menos do que vale o que foi feito." />
     </section>
   )
 }
@@ -505,17 +561,19 @@ function Proximos({ d, m }) {
       <h3>Próximos 30 dias ({dmy(cx.de)} a {dmy(cx.ate)})</h3>
       <p className="intro">{ativs.length} atividades previstas ou atrasadas; as {top.length} mais importantes (atrasadas primeiro):</p>
       <table className="tab">
-        <thead><tr><th>Atividade</th><th className="n">Falta</th><th>Equipes sugeridas</th><th>Término projetado</th></tr></thead>
+        <thead><tr><th>Atividade</th><th className="n">Falta</th><th>Equipes sugeridas</th><th>Término (cronograma · com as equipes)</th></tr></thead>
         <tbody>
           {top.map((a) => {
             const t = a.termino || {}
             return (
               <tr key={a.id}>
-                <td><Sinal cor={a.atrasada ? 'vermelho' : a.status === 'A INICIAR' ? 'cinza' : 'verde'} /> {a.grupo_num} {a.grupo_nome} · {a.codigo_eap} {descCurta(a.descricao)} · {rotuloPavimento(a.pavimento, a.codigo_eap)}
+                <td><Sinal cor={a.atrasada ? 'vermelho' : a.status === 'A INICIAR' ? 'cinza' : 'verde'}
+                  palavra={a.atrasada ? 'atrasada' : a.status === 'A INICIAR' ? 'a iniciar' : 'em dia'} /> {a.grupo_num} {a.grupo_nome} · {a.codigo_eap} {descCurta(a.descricao)} · {a.pavimento}
                   {a.atrasada && <div className="motivo">atrasada: previsto {pc1(a.plan_hoje)}, feito {pc1(a.real)}{!m.medNoPeriodo && d.med ? ` (medição de ${dm(d.med.data)})` : ''}</div>}</td>
                 <td className="n">{pc1(100 - a.real)}{t.horas != null ? <div className="motivo">{Math.round(t.horas).toLocaleString('pt-BR')} h</div> : null}</td>
                 <td>{t.usadas ? `${t.usadas} equipe${t.usadas > 1 ? 's' : ''}` : 'a definir'}{a.equipe ? <div className="motivo">{a.equipe.composicao}</div> : null}</td>
-                <td>{t.termino ? dmy(t.termino) : '—'}<div className="motivo">{t.termino ? (t.cumpre ? 'dentro do cronograma' : `${t.atrasa} dia(s) depois do cronograma`) : 'sem índice ou equipe'}</div></td>
+                <td>fim no cronograma {dmy(a.fim_crono)}
+                  <div className="motivo">{t.termino ? `com ${t.usadas} equipe${t.usadas === 1 ? '' : 's'}: ${dmy(t.termino)} (${t.cumpre ? 'dentro do cronograma' : `${t.atrasa} dia(s) depois`})` : 'com equipes: sem índice ou equipe'}</div></td>
               </tr>
             )
           })}
@@ -526,11 +584,17 @@ function Proximos({ d, m }) {
           <h4>Dinheiro necessário: {fmt2(cx.total)}</h4>
           <table className="tab peq"><tbody>
             {cx.grupos.map((g) => <tr key={g.grupo}><td>{g.grupo} {g.nome}</td><td className="n">{fmt2(g.valor)}</td></tr>)}
-            <tr><td>Contas já lançadas a pagar</td><td className="n">{fmt2(cx.contas)}</td></tr>
+            <tr><td>Contas já lançadas a pagar ({cx.n_contas} título{cx.n_contas === 1 ? '' : 's'}, abaixo)</td><td className="n">{fmt2(cx.contas)}</td></tr>
             <tr><td>Custo indireto do período</td><td className="n">{fmt2(cx.indiretos)}</td></tr>
             <tr className="total"><td>Total</td><td className="n">{fmt2(cx.total)}</td></tr>
           </tbody></table>
-          <Nota>Pelo cronograma seriam {fmt2(cx.curva)}. Serviço pelo valor executado; prazos de pagamento de fornecedores ainda não considerados.</Nota>
+          {cx.titulos.length > 0 && (
+            <table className="tab peq"><thead><tr><th>Conta a pagar</th><th>Vence</th><th className="n">Valor</th></tr></thead><tbody>
+              {cx.titulos.map((x) => <tr key={x.chave}><td>{x.fornecedor}<div className="motivo">{x.documento}</div></td><td>{dmy(x.vencimento)}</td><td className="n">{fmt2(x.valor)}</td></tr>)}
+            </tbody></table>
+          )}
+          <Nota>Pelo cronograma seriam {fmt2(cx.curva)}. Serviço pelo valor executado; prazos de pagamento de fornecedores ainda não considerados.
+            Conta a pagar já lançada não entra de novo como material: o material do serviço conta só o que ainda falta comprar.</Nota>
         </div>
         <div>
           <h4>Compras importantes</h4>
@@ -549,9 +613,9 @@ function Atencao({ d, m }) {
   const { per, pa, med, indFim, pFim } = d
   const itens = []
   const atr = pa.atividades.filter((a) => a.atrasada)
-  if (atr.length) itens.push({ cor: 'vermelho', txt: <>{atr.length} atividade{atr.length > 1 ? 's' : ''} atrasada{atr.length > 1 ? 's' : ''} em {dmy(per.fimReal)}{!m.medNoPeriodo && med ? ` pela última medição (${dmy(med.data)})` : ''}: {atr.slice(0, 4).map((a) => `${descCurta(a.descricao)} (${rotuloPavimento(a.pavimento, a.codigo_eap)})`).join('; ')}.</> })
+  if (atr.length) itens.push({ cor: 'vermelho', txt: <>{atr.length} atividade{atr.length > 1 ? 's' : ''} atrasada{atr.length > 1 ? 's' : ''} em {dmy(per.fimReal)}{!m.medNoPeriodo && med ? ` pela última medição (${dmy(med.data)})` : ''}: {atr.slice(0, 4).map((a) => `${descCurta(a.descricao)} (${a.pavimento})`).join('; ')}.</> })
   const curto = pa.atividades.filter((a) => a.cronograma_curto)
-  curto.slice(0, 4).forEach((a) => itens.push({ cor: 'amarelo', txt: <>Cronograma curto: {descCurta(a.descricao)} ({rotuloPavimento(a.pavimento, a.codigo_eap)}) tem {Math.round(a.cronograma_curto.horas_cronograma)} h no cronograma, mas pela produtividade real precisa de {Math.round(a.cronograma_curto.horas_indice)} h (+{pc1(a.cronograma_curto.excesso_pct)}).</> }))
+  curto.slice(0, 4).forEach((a) => itens.push({ cor: 'amarelo', txt: <>Cronograma curto: {descCurta(a.descricao)} ({a.pavimento}) tem {Math.round(a.cronograma_curto.horas_cronograma)} h no cronograma, mas pela produtividade real precisa de {Math.round(a.cronograma_curto.horas_indice)} h (+{pc1(a.cronograma_curto.excesso_pct)}).</> }))
   if (!med) itens.push({ cor: 'cinza', txt: 'Nenhuma medição de serviço até a data final.' })
   else if (med.semana < per.sFim) itens.push({ cor: m.medNoPeriodo ? 'amarelo' : 'vermelho', txt: <>Última medição em {dmy(med.data)}; o período vai até {dmy(per.fimReal)}. Medir para atualizar avanço, prazo e projeções.</> })
   const cats = indFim.categorias || []
@@ -623,8 +687,11 @@ html, body { background: #e6e9ed !important; color: ${TXT} !important; }
 .junto { break-inside: avoid; }
 .intro { color: ${SUAVE}; }
 .nota { font-size: 8.5pt; color: ${SUAVE}; margin: 8px 0; line-height: 1.4; }
-.sinal { display: inline-block; border-radius: 50%; vertical-align: middle; flex-shrink: 0;
-  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.sinal { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; flex-shrink: 0; }
+.sinal svg { display: block; }
+.palavra { font-size: 8pt; font-weight: 600; }
+.grande .palavra, .pr .palavra { font-size: 9pt; }
+html, body, .folha, .grafico, svg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .capa { display: flex; flex-direction: column; justify-content: center; }
 .capa-topo { font: 500 11pt 'IBM Plex Mono'; letter-spacing: .14em; text-transform: uppercase; color: ${SUAVE}; }
