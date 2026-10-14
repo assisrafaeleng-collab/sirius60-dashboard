@@ -305,7 +305,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                       </thead>
                       <tbody>
                         {i._lanc.map(l => (
-                          <tr key={l.id}>
+                          <tr key={l.id} style={l.substituida_por ? { color: 'var(--text3)' } : undefined}>
                             <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
                               {fmtDate(l.data_lancamento)}
                             </td>
@@ -313,7 +313,7 @@ export default function MedicaoSemanal({ semana, sessao }) {
                                          color: 'var(--text3)' }}>S{l.semana_numero}</td>
                             <td style={{ fontFamily: 'var(--mono)', color: REALIZADO }}>
                               {acumulado
-                                ? <>{parseFloat(l.percentual).toFixed(1)}%{l.transferido_de &&
+                                ? <><span style={l.substituida_por ? { textDecoration: 'line-through', color: 'var(--text3)' } : undefined}>{parseFloat(l.percentual).toFixed(1)}%</span>{l.transferido_de &&
                                     <span className="kpi-sub" title="medição feita na linha de material e transferida"> (de {l.transferido_de})</span>}</>
                                 : <>+{parseFloat(l.incremento_pct).toFixed(1)}%</>}
                             </td>
@@ -327,6 +327,8 @@ export default function MedicaoSemanal({ semana, sessao }) {
                                 : <span style={{ color: 'var(--text3)' }}>—</span>}
                             </td>
                             <td style={{ fontSize: 11, color: 'var(--text2)' }}>
+                              {l.correcao && <span style={{ fontWeight: 600 }}>correção · </span>}
+                              {l.substituida_por && <span>substituída pela correção · </span>}
                               {l.observacao || (l.medido_por ? `por ${l.medido_por}` : '—')}
                             </td>
                             <td>

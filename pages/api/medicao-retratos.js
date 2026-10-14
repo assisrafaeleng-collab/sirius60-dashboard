@@ -17,7 +17,7 @@ export default async function handler(req, res) {
       retratos: m.retratos.map((r) => ({
         id: r.id, codigo_eap: r.codigo_eap, pavimento: r.pavimento, data_lancamento: r.data_lancamento,
         semana_numero: r.semana_numero, percentual: r.percentual, incremento: r.incremento ?? null,
-        transferido_de: r.transferido_de ?? null,
+        transferido_de: r.transferido_de ?? null, correcao: !!r.correcao, substituida_por: r.substituida_por ?? null,
       })),
       vinculos: v.vinculos,
     })

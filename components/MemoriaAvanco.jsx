@@ -25,18 +25,21 @@ export default function MemoriaAvanco({ linha, retratos, modo, onGravou }) {
   const [quem, setQuem] = useState('')
 
   const acumulado = modo === 'acumulado'
-  // lançamentos da linha, em ordem; avanço = total − total anterior
+  // lançamentos da linha, em ordem; avanço = total − total anterior. Medição substituída por uma correção (pedido 19)
+  // aparece em cinza e não entra na conta do avanço (vale a correção, na mesma semana e data).
   const lista = []
   let ant = 0
   retratos.forEach((r) => {
+    if (r.substituida_por) { lista.push({ ...r, avanco: null }); return }
     lista.push({ ...r, avanco: r.percentual - ant })
     ant = r.percentual
   })
-  const hoje = lista.length ? lista[lista.length - 1].percentual : 0
+  const validos = lista.filter((l) => !l.substituida_por)
+  const hoje = validos.length ? validos[validos.length - 1].percentual : 0
   // base do formulário: em edição, o total anterior ao lançamento editado; senão, o de hoje
   const base = form.id ? (() => {
-    const i = lista.findIndex((l) => l.id === form.id)
-    return i > 0 ? lista[i - 1].percentual : 0
+    const i = validos.findIndex((l) => l.id === form.id)
+    return i > 0 ? validos[i - 1].percentual : 0
   })() : hoje
   const semanaForm = dataParaSemana(form.data)
   const hojeSP = hojeSaoPaulo()
@@ -123,12 +126,16 @@ export default function MemoriaAvanco({ linha, retratos, modo, onGravou }) {
           </thead>
           <tbody>
             {lista.map((l) => (
-              <tr key={l.id}>
+              <tr key={l.id} style={l.substituida_por ? { color: 'var(--text3)' } : undefined}>
                 <td style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{dmy(l.data_lancamento)}</td>
                 <td style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text3)' }}>{S2(dataParaSemana(l.data_lancamento) || l.semana_numero)}</td>
-                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: REALIZADO }}>{(l.avanco >= 0 ? '+' : '') + pc(l.avanco)}</td>
-                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 600 }}>{pc(l.percentual)}</td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', color: l.substituida_por ? 'var(--text3)' : REALIZADO }}>
+                  {l.substituida_por ? '—' : (l.avanco >= 0 ? '+' : '') + pc(l.avanco)}
+                </td>
+                <td style={{ textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: l.substituida_por ? 400 : 600,
+                             textDecoration: l.substituida_por ? 'line-through' : 'none' }}>{pc(l.percentual)}</td>
                 <td style={{ fontSize: 11, color: 'var(--text2)' }}>
+                  {l.correcao ? 'correção da medição' : l.substituida_por ? 'substituída pela correção' : ''}
                   {l.transferido_de ? `transferida de ${l.transferido_de}` : ''}
                 </td>
                 <td style={{ textAlign: 'right' }}>

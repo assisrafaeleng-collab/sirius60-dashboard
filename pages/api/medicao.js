@@ -46,6 +46,7 @@ export default async function handler(req, res) {
         percentual: r.percentual, incremento_pct: acumulado ? null : r.incremento,
         hh_semana: r.hh_semana ?? null, qtd_semana: r.qtd_semana ?? null,
         medido_por: r.medido_por || null, observacao: r.observacao || null, transferido_de: r.transferido_de || null,
+        correcao: !!r.correcao, substituida_por: r.substituida_por ?? null,
       })
       s.acumulado = Math.min(r.percentual, 100)          // retratos já vêm em ordem: o último vale
       s.hh += parseFloat(r.hh_semana || 0)
