@@ -319,6 +319,12 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   relatório novo; valor de título já pago que mudou; mês fechado cujo total mudou > R$ 0,01 sem explicação título a
   título; título no a pagar e no custo até o corte; trava do importar.js. Pendência de classificação no mês a gravar
   também para. O Rafael decide caso a caso.
+- 1ª CARGA REAL (16/10/2026, corte 13/10, acumulado; carga semanal fcdf522b-e1e9-4e7d-80c6-5831ec8bca4a; custo 2026-10
+  importação 1afab9c5…; contas a pagar carga 0f6d2dff…): custo 2026-10 R$ 52.118,90 (BM4 19.336,12, vale 09/10 2.500,00
+  PROVISÓRIO pelo BM4, Betonita 616 29.620,00, CEMIG 202,58, Tecidos 460,20); ago e set sem mudança; a pagar no corte
+  R$ 27.002,35 (direto 9.804,54: Madeiras Nova Esperança 2104/02 + Tecidos 25602254/01; indireto 19.1.25 17.197,81:
+  DCTFWEB + FGTS). Arquivos "Fonseca/Dinamica pago acumulado até 13-10-26" (trazem também os em aberto; Dinâmica =
+  rateio do Sirius); atualizar.js identifica a fonte pelo cabeçalho.
 - Teste de 09/10 (só prévia): relatórios "Até 09-26" como 1ª semana (corte 30/09) = custo novo zero, bloqueio zero,
   a pagar R$ 49.158,70 (igual ao banco); relatório igual = zero; um título a mais = só ele; valor mudado = bloqueio.
 - NF ↔ OC (3B): chave = nº da NF + CNPJ do relatório de OC (ou nº da OC no documento); o classificador já abre a NF
