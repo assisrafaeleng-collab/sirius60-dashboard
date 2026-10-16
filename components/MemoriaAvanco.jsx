@@ -5,7 +5,7 @@
 // Senha: Desbloqueio dentro da página (sem alert/confirm/prompt). Hooks no topo (erro #310).
 import { useState } from 'react'
 import { fmtP1, CORES } from '../lib/constants'
-import { dataParaSemana, hojeSaoPaulo, rotuloPavimento } from '../lib/constants'
+import { dataParaSemana, hojeSaoPaulo, rotuloPavimento, textoOrigemCronograma } from '../lib/constants'
 import { datasDaSemana } from '../lib/calendario'
 import { fetchComSenhaSemJanela, temSenha } from '../lib/fetch-com-senha'
 import Desbloqueio from './Desbloqueio'
@@ -107,6 +107,9 @@ export default function MemoriaAvanco({ linha, retratos, modo, onGravou }) {
       <div className="form-section-title" style={{ marginBottom: 8 }}>
         Memória de cálculo — {linha.codigo_eap} · {linha.descricao} · {rotuloPavimento(linha.pavimento, linha.codigo_eap)}
       </div>
+      {textoOrigemCronograma(linha.origem_cronograma) && (
+        <div style={{ fontSize: 11, color: 'var(--text3)', margin: '-4px 0 8px' }}>{textoOrigemCronograma(linha.origem_cronograma)}</div>
+      )}
       {bloqueado && (
         <div className="toast" style={{ marginBottom: 10, background: 'var(--bg3)', color: 'var(--text2)' }}>
           Lançamento liberado depois da conversão da medição acumulada. Histórico só para leitura.

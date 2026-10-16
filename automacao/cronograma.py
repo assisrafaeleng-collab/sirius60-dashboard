@@ -12,7 +12,9 @@ Regras (CLAUDE.md, 08/10/2026):
   Semana k do cronograma = mês M = ceil(k/4) (M01 = ago/2026), posição p = k − 4(M−1), que ocupa a fração
   (p−1)/4 … p/4 dos DIAS do mês no calendário. Horas (e valor) da atividade: iguais em cada semana do cronograma
   e espalhadas linearmente pelos dias dessa fração; somadas por semana real.
-- Ligação (tabela fixa por id, tipos_linha_orcamento.csv, pedido 13H): por pavimento + serviço (os códigos do cronograma não são os da EAP). Encunhamento de cada pavimento →
+- Ligação dos SERVIÇOS (pedido 17, Rafael 11/10): tabela de correspondência cronograma/correspondencia_cronograma_eap.csv
+  (atividade e regra de posição por id; fora dela: lógica antiga, marcada "sem ligação"). Materiais e a lógica antiga:
+  tabela fixa por id, tipos_linha_orcamento.csv, pedido 13H: por pavimento + serviço (os códigos do cronograma não são os da EAP). Encunhamento de cada pavimento →
   "Alvenaria <pavimento>" (as horas do cronograma já o incluem); 4.0.9 → 4.9. Custo de tempo (1.1.6, grupos 17,
   18 e 19) não entra no avanço.
 - Sequência dentro da estrutura de cada pavimento (Rafael, 08/10; pedido 12): cada linha tem a SUA janela dentro da
@@ -172,6 +174,52 @@ ENCUNHAMENTO = 'ENCUNHAMENTO: semana seguinte ao fim da alvenaria do pavimento'
 DUR_ENCUNHAMENTO = 2      # semanas reais
 
 
+# Tabela de correspondência cronograma → EAP (pedido 17, Rafael 11/10/2026): uma linha por linha de SERVIÇO da EAP,
+# conferida pelo Rafael (correspondencia.py gera a 1ª versão). Quando a linha está na tabela, a atividade e a regra
+# de posição vêm dela; linha de serviço fora da tabela usa a ligação antiga (tabela de tipos) e sai marcada
+# "sem ligação". Materiais não entram: seguem a ligação da tabela de tipos (= a do serviço vinculado).
+CORRESPONDENCIA = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'cronograma', 'correspondencia_cronograma_eap.csv')
+POSICAO_TIPO = {'armação': 'armacao', 'forma: começa meia semana depois': 'forma', 'laje treliçada': 'laje_trelicada',
+                'concretagem: pilares 30% / laje 70%': 'concretagem', 'escada: última semana': 'escada'}
+
+
+def aplicar_correspondencia(orc, arquivo=CORRESPONDENCIA):
+    """atividade, servico_estrutura e regra pela tabela de correspondência; coluna 'ligacao' diz de onde veio"""
+    orc = orc.copy()
+    orc['ligacao'] = ['material (segue o serviço vinculado)' if m else '' for m in orc.material]
+    if not os.path.exists(arquivo):
+        print(f'AVISO: {arquivo} não existe — ligação antiga em todas as linhas ("sem ligação")')
+        orc.loc[~orc.material, 'ligacao'] = 'sem ligação (lógica antiga)'
+        return orc
+    t = pd.read_csv(arquivo, dtype={'codigo_eap': str, 'atividade_cronograma': str, 'regra_posicao': str}).fillna(
+        {'atividade_cronograma': '', 'regra_posicao': ''})
+    t = t.set_index('id')
+    for i in orc.index[~orc.material]:
+        oid = orc.id[i]
+        if str(orc.regra[i]).startswith('custo de tempo'):
+            orc.loc[i, 'ligacao'] = 'custo de tempo (fora do avanço)'
+            continue
+        if oid not in t.index:
+            orc.loc[i, 'ligacao'] = 'sem ligação (lógica antiga)'
+            continue
+        r = t.loc[oid]
+        if r.codigo_eap != orc.codigo_eap[i]:
+            raise SystemExit(f'correspondência: id {oid} é {orc.codigo_eap[i]} no orçamento e {r.codigo_eap} na tabela')
+        pos = r.regra_posicao
+        orc.loc[i, 'atividade'] = r.atividade_cronograma
+        orc.loc[i, 'servico_estrutura'] = POSICAO_TIPO.get(pos, '')
+        regra = orc.regra[i]
+        if pos == 'encunhamento: depois da alvenaria':
+            regra = ENCUNHAMENTO
+        elif pos == 'escada: última semana':
+            regra = regra if str(regra).startswith('ESCADA') else 'ESCADA: última semana da estrutura (tabela de correspondência)'
+        elif str(regra).startswith('ESCADA') or regra == ENCUNHAMENTO:
+            regra = 'serviço (tabela de correspondência)'
+        orc.loc[i, 'regra'] = regra
+        orc.loc[i, 'ligacao'] = 'tabela de correspondência' if r.atividade_cronograma else 'sem ligação (vazia na tabela)'
+    return orc
+
+
 def espalhar_real(cal, s0, s1, quanto, por_dia):
     """soma em por_dia 'quanto' espalhado igual pelos dias das semanas reais s0..s1"""
     a = cal.data_inicio[cal.semana_numero == s0].iloc[0]
@@ -209,6 +257,7 @@ if __name__ == '__main__':
     ap.add_argument('--saida', default='saida_v2')
     ap.add_argument('--hoje', default=None)
     ap.add_argument('--sem-sequencia', action='store_true', help='distribuição antiga (todas as linhas juntas na atividade)')
+    ap.add_argument('--correspondencia', default=CORRESPONDENCIA, help='tabela de correspondência cronograma → EAP (pedido 17)')
     ap.add_argument('--indiretos', default=None, help='exportação de custos_indiretos_planejados (id, codigo_eap, categoria, recorrente, semana_desembolso, semana_fim, valor_total)')
     a = ap.parse_args()
     arq = a.cronograma or [f for f in glob.glob('entrada/cronograma/*Final*.xlsx') if not os.path.basename(f).startswith('~$')][0]
@@ -220,6 +269,7 @@ if __name__ == '__main__':
 
     # 1) ligação
     orc = juntar_tipos(orc)   # atividade, regra e servico_estrutura pela tabela fixa por id (não pelo texto)
+    orc = aplicar_correspondencia(orc, a.correspondencia)   # serviços: pela tabela de correspondência (pedido 17)
     info = crono.set_index('atividade')
     orc['descricao_atividade'] = orc.atividade.map(info.descricao)
     orc['ini_crono'] = orc.atividade.map(info.ini); orc['fim_crono'] = orc.atividade.map(info.fim)
@@ -293,6 +343,9 @@ if __name__ == '__main__':
     print(f'  hoje {hoje:%d/%m/%Y} = S{sh.semana_numero:02d} ({sh.data_inicio:%d/%m}–{sh.data_fim:%d/%m}, {sh.semana_do_mes}ª de {sh.competencia})')
     print(f'\nLIGAÇÃO: {len(orc)} linhas do orçamento | ligadas {len(lig)} | custo de tempo {sum(orc.regra.str.startswith("custo de tempo"))}'
           f' | escadas {int(esc.sum())} | sem atividade {sum(orc.regra == "SEM ATIVIDADE")}')
+    print('  ligação: ' + ' | '.join(f'{k} {v}' for k, v in orc.ligacao.value_counts().items()))
+    for r in orc[orc.ligacao.str.startswith('sem ligação')].itertuples():
+        print(f'  SEM LIGAÇÃO {r.codigo_eap:8s} {r.pavimento:12s} {str(r.descricao)[:45]} → lógica antiga ({r.atividade or "—"})')
     for r in orc[orc.regra.isin(['SEM ATIVIDADE']) | esc].itertuples():
         print(f'  {r.codigo_eap:8s} {r.pavimento:12s} {str(r.descricao)[:45]:45s} hh {r.hh:7.1f} → {r.atividade or "—"} {r.regra[:40]}')
     sem_linha = crono[crono.linhas == 0]

@@ -6,7 +6,7 @@
 // CAIXA do período (mão de obra | material). Compras só no botão discreto. Clique na atividade = memória de cálculo e
 // histórico. Hooks no topo (erro #310). Nada inventado: campo vazio em amarelo para preencher.
 import React, { useEffect, useState } from 'react'
-import { fmtP1, fmtMoeda2, CORES_VA, rotuloPavimento } from '../lib/constants'
+import { fmtP1, fmtMoeda2, CORES_VA, rotuloPavimento, textoOrigemCronograma } from '../lib/constants'
 import { calcularTermino, pctNoPeriodo, caixaAtividade, equipesDoCaixa } from '../lib/pontos-atencao'
 import { fetchComSenhaSemJanela, temSenha } from '../lib/fetch-com-senha'
 import Desbloqueio from './Desbloqueio'
@@ -266,6 +266,7 @@ export default function PontosAtencao({ semana }) {
         {on && (
           <tr>
             <td colSpan={NCOL} style={{ fontSize: 11, color: 'var(--text2)', background: 'var(--bg)', lineHeight: 1.7, paddingLeft: 30 }}>
+              {textoOrigemCronograma(a.origem_cronograma) && <div style={{ color: CINZA }}>{textoOrigemCronograma(a.origem_cronograma)}</div>}
               <b>Memória de cálculo</b> · horas que faltam = (100% − {fmtP1(a.real)}) × {a.horas_total != null && !mudouIx ? `${nf(a.horas_total, 0)} Hh (duração)` : `${nf(a.quantidade, 1)} ${a.unidade} × índice`}
               {' '}= {nf(t.horas, 0)} Hh · 1 equipe = {t.capacidade_dia ?? '—'} Hh/dia · data-alvo {dmy(t.alvo)} ({diasUt(t.dias_ate_alvo)}) · sugerido {t.sugeridas ?? '—'} equipe(s)
               <br />Ritmo atual: {rt.nao_iniciada ? 'sem medição' : `${nf(rt.ritmo, 2)}% por dia útil, de ${dmy(rt.inicio_real)} até a última medição ${dmy(rt.ultima)}`}
