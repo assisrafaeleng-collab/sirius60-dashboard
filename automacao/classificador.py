@@ -567,6 +567,8 @@ if __name__ == '__main__':
     ap.add_argument('--completo', action='store_true',
                     help='relatórios completos (decisão 08/10/2026): "Relatório de Custo Fonseca e Lage" (Valor Baixado) '
                          'e "Relatório de Custo DINAMICA" (VALOR_RATEIO); o SQL deixa de ser fonte separada')
+    ap.add_argument('--corte', help='AAAA-MM-DD (rotina semanal, pedido 15): pago depois desta data não é custo nesta carga '
+                                    '(fica no contas a pagar do corte e entra na próxima carga)')
     a = ap.parse_args()
     comp = a.competencia
     if not re.fullmatch(r'\d{4}-\d{2}', comp):
@@ -598,6 +600,13 @@ if __name__ == '__main__':
         din, rat = cruzar_rateio(din, rat)
         tudo = pd.concat([fon, din, rat], ignore_index=True)
     tudo['cruzamento'] = tudo.cruzamento.fillna('')
+    if a.corte:
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.corte):
+            raise SystemExit('ERRO: --corte no formato AAAA-MM-DD')
+        # data de corte (pedido 15): o que foi pago depois dela fica fora do custo desta carga (vai como não custo,
+        # com o motivo); no contas a pagar do mesmo corte ele aparece em aberto — nunca nos dois
+        depois = (tudo.pago == True) & (pd.to_datetime(tudo.competencia, errors='coerce') > pd.Timestamp(a.corte))
+        tudo.loc[depois & (tudo.cruzamento == ''), 'cruzamento'] = f'pago depois da data de corte {a.corte} (entra na próxima carga)'
     tudo['chave'] = tudo.fonte + '|' + tudo.ref.astype(str) + '|' + tudo.documento
     tudo['mes'] = tudo.competencia.astype(str).str[:7]
     if a.completo:

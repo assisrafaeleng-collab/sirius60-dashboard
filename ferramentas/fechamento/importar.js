@@ -34,6 +34,7 @@
 const fs = require('fs')
 const path = require('path')
 const { createClient } = require('@supabase/supabase-js')
+const { chaveCsv, chaveBanco } = require('../semana/chave')
 
 const OBRA = 'sirius60'
 const S01 = '2026-08-03' // início da obra (lib/constants.js); data menor que esta não tem semana
@@ -54,9 +55,15 @@ const CONTAS = args.includes('--contas')
 const FECHAMENTO = arg('--fechamento')
 const COMPETENCIA = arg('--competencia')
 const DESFAZER = arg('--desfazer')
-// pasta da saída do classificador dentro de automacao/ (saida_v2 = relatórios completos, classificador --completo)
+// pasta da saída do classificador dentro de automacao/ (saida_v2 = relatórios completos, classificador --completo;
+// saida_semana/AAAA-MM-DD = rotina semanal, pedido 15)
 const SAIDA = arg('--saida') || 'saida'
-if (!/^[\w-]+$/.test(SAIDA)) throw new Error('--saida: só o nome da pasta dentro de automacao/ (ex.: saida_v2)')
+if (!/^[\w-]+(\/[\w-]+)?$/.test(SAIDA)) throw new Error('--saida: pasta dentro de automacao/ (ex.: saida_v2 ou saida_semana/2026-10-16)')
+// --apenas <arquivo.json>: relatório SÓ DA SEMANA (pedido 15). Lista de chaves do título (ferramentas/semana/chave.js);
+// entram só essas linhas e nada do mês sai (insere o que é novo; o que já está no banco é ignorado).
+const APENAS = arg('--apenas')
+// fechamento do contas a pagar: AAAA-MM (último dia do mês) ou AAAA-MM-DD (data de corte da rotina semanal)
+const FECH_OK = /^\d{4}-\d{2}(-\d{2})?$/
 
 const fmt = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const r2 = (v) => Math.round(v * 100) / 100
@@ -158,7 +165,7 @@ async function existeTabela(db, nome) {
 }
 
 async function contas(db) {
-  if (!/^\d{4}-\d{2}$/.test(FECHAMENTO || '')) throw new Error('--contas precisa de --fechamento AAAA-MM')
+  if (!FECH_OK.test(FECHAMENTO || '')) throw new Error('--contas precisa de --fechamento AAAA-MM ou AAAA-MM-DD')
   const arq = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}.csv`)
   const arqR = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}_resumo.json`)
   if (!fs.existsSync(arq)) throw new Error(`${path.relative(RAIZ, arq)} não existe: rode py contas_a_pagar.py --fechamento ${FECHAMENTO}`)
@@ -251,7 +258,7 @@ async function contas(db) {
 }
 
 async function desfazerContas(db) {
-  if (!/^\d{4}-\d{2}$/.test(FECHAMENTO || '')) throw new Error('--contas --desfazer precisa de --fechamento AAAA-MM')
+  if (!FECH_OK.test(FECHAMENTO || '')) throw new Error('--contas --desfazer precisa de --fechamento AAAA-MM ou AAAA-MM-DD')
   const backup = path.join(AUTOMACAO, SAIDA, `contas_${FECHAMENTO}_backup_${DESFAZER}.json`)
   if (!fs.existsSync(backup)) throw new Error(`backup da carga ${DESFAZER} não encontrado (${path.relative(RAIZ, backup)})`)
   const b = JSON.parse(fs.readFileSync(backup, 'utf8'))
@@ -298,7 +305,10 @@ async function importar(db) {
   const avisos = []
   if (comp > hojeSP().slice(0, 7)) travas.push(`competência ${comp} é futura (hoje ${br(hojeSP())})`)
 
-  const brutas = lerCsv(arqL)
+  const todasBrutas = lerCsv(arqL)
+  // --apenas (relatório só da semana): só as chaves pedidas; o resto do mês fica como está
+  const apenas = APENAS ? new Set(JSON.parse(fs.readFileSync(path.resolve(APENAS), 'utf8'))) : null
+  const brutas = apenas ? todasBrutas.filter((b) => apenas.has(chaveCsv(b))) : todasBrutas
   const pend = fs.existsSync(arqP) ? lerCsv(arqP) : []
   if (pend.length) travas.push(`${pend.length} pendência(s) em pendencias.csv (${fmt(soma(pend))}): decida antes de gravar`)
   const faltando = ['documento', 'fornecedor', 'item', 'competencia', 'valor', 'codigo_eap', 'data_emissao', 'cnpj', 'fonte', 'pavimento']
@@ -306,14 +316,14 @@ async function importar(db) {
   if (faltando.length) throw new Error(`lancamentos.csv sem as colunas: ${faltando.join(', ')}`)
 
   // Soma do CSV x total que o classificador registrou
-  const totalCsv = soma(brutas)
+  const totalCsv = soma(todasBrutas)
   let resumo = null
   if (!fs.existsSync(arqR)) travas.push('resumo.json do classificador não existe: rode o classificador de novo')
   else {
     resumo = JSON.parse(fs.readFileSync(arqR, 'utf8'))
     if (resumo.competencia !== comp) travas.push(`resumo.json é de ${resumo.competencia}, não de ${comp}`)
-    if (Math.abs(resumo.total - totalCsv) >= 0.005 || resumo.lancamentos !== brutas.length)
-      travas.push(`lancamentos.csv (${brutas.length} · ${fmt(totalCsv)}) não fecha com o resumo do classificador (${resumo.lancamentos} · ${fmt(resumo.total)})`)
+    if (Math.abs(resumo.total - totalCsv) >= 0.005 || resumo.lancamentos !== todasBrutas.length)
+      travas.push(`lancamentos.csv (${todasBrutas.length} · ${fmt(totalCsv)}) não fecha com o resumo do classificador (${resumo.lancamentos} · ${fmt(resumo.total)})`)
   }
 
   const orc = await orcamento(db)
@@ -333,7 +343,7 @@ async function importar(db) {
   const agrupadas = [...grupos.values()].filter((g) => g.__n > 1)
   agrupadas.forEach((g) => (g.item = g.__itens.join(' + ').slice(0, 300)))
   const unicas = [...grupos.values()]
-  if (Math.abs(soma(unicas) - totalCsv) >= 0.005) throw new Error('agrupar mudou o total: nada foi feito')
+  if (Math.abs(soma(unicas) - soma(brutas)) >= 0.005) throw new Error('agrupar mudou o total: nada foi feito')
 
   // Linhas novas no formato do site (pages/api/lancamentos.js)
   let movidas = 0
@@ -401,7 +411,8 @@ async function importar(db) {
   // Banco: o que está hoje na competência
   const existentes = await todos(() =>
     db.from('custos_lancamentos').select('*').eq('obra_id', OBRA).gte('competencia', `${comp}-01`).lt('competencia', `${proxMes(comp)}-01`).order('id'))
-  const sai = existentes.filter((e) => e.importacao_id || txt(e.lancado_por) === SAI_LANCADO_POR)
+  // --apenas: nada do mês sai; chave que já está no banco (qualquer mês) não entra de novo
+  const sai = apenas ? [] : existentes.filter((e) => e.importacao_id || txt(e.lancado_por) === SAI_LANCADO_POR)
   const mantido = existentes.filter((e) => !sai.includes(e))
 
   // Mantido que parece repetir uma linha nova
@@ -459,6 +470,12 @@ async function importar(db) {
   console.log(`  Data: a data de pagamento (baixa) vai para data_emissao (a coluna da semana no site);` +
     ` competencia = ${comp}-01.${movidas ? ` ${movidas} linha(s) pagas antes de ${br(S01)} vão para ${br(S01)} (data real no histórico).` : ''}`)
 
+  if (apenas) {
+    const noBanco = new Set((await todos(() => db.from('custos_lancamentos').select('fonte, cnpj, fornecedor, num_documento, data_emissao, historico').eq('obra_id', OBRA))).map(chaveBanco))
+    const repetidas = brutas.filter((b) => noBanco.has(chaveCsv(b)))
+    if (repetidas.length) travas.push(`${repetidas.length} linha(s) de --apenas já estão no banco (mesma chave do título): ${repetidas.map((b) => b.documento).join(', ')}`)
+    console.log(`  --apenas: ${brutas.length} de ${todasBrutas.length} linha(s) do lancamentos.csv (só as chaves novas); nada do mês sai`)
+  }
   if (!est.importacoes || !est.colunas)
     console.log(`  ! estrutura ainda não existe no banco (${[!est.importacoes && 'tabela importacoes', !est.colunas && 'colunas importacao_id/cnpj/fonte'].filter(Boolean).join(', ')}):` +
       ` rode supabase/custos/1-importacoes.sql e 2-colunas-custos.sql antes do --confirmar`)

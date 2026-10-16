@@ -1,6 +1,6 @@
 """
 Contas a pagar do fechamento (card do dashboard; NÃO é custo realizado). Sirius 60, adaptado do Flats.
-Uso: py contas_a_pagar.py --fechamento 2026-09 [--fonseca arq.xlsx] [--dinamica arq.xlsx] [--oc pasta] [--saida saida_v2]
+Uso: py contas_a_pagar.py --fechamento 2026-09 | --corte 2026-10-16 [--fonseca arq.xlsx] [--dinamica arq.xlsx] [--oc pasta] [--saida saida_v2]
 Saída: <saida>/contas_AAAA-MM.csv (uma linha por título e EAP) e <saida>/contas_AAAA-MM_fora.csv (o que saiu e por quê)
 
 Regras (CLAUDE.md, "Contas a pagar", decisões de 08/10/2026):
@@ -8,6 +8,9 @@ Regras (CLAUDE.md, "Contas a pagar", decisões de 08/10/2026):
   título a pagar (decisão 08/10/2026, pedido 8).
 - A pagar = não estava pago no fechamento: Data de Baixa vazia OU Data de Baixa depois do último dia do mês
   do fechamento (ex.: NF do BM4 baixada em 02/10 estava a pagar em 30/09). Não se olha o valor baixado.
+- Rotina semanal (pedido 15): --corte AAAA-MM-DD usa a DATA DE CORTE do relatório no lugar do último dia do mês, e o
+  fechamento passa a ser a própria data (contas_AAAA-MM-DD.csv). Título pago entre um corte e outro sai do a pagar e
+  entra no custo da carga seguinte — nunca nos dois.
 - Filtros, nesta ordem: (a) vales/adiantamentos da Sericita e decisões NAO_CUSTO (decisoes_pontuais.csv, ex.:
   Caixa Cartões); (b) previsões das OCs 1787 e 1849;
   (c) duplicidade (mesmo CNPJ + documento já pago em qualquer fonte ou no custo gravado; mesmo CNPJ + valor
@@ -91,15 +94,24 @@ def recorrente_direto(eap):
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--fechamento', required=True, help='AAAA-MM')
+    ap.add_argument('--fechamento', help='AAAA-MM (fechamento no último dia do mês)')
+    ap.add_argument('--corte', help='AAAA-MM-DD (rotina semanal: fechamento na data de corte do relatório)')
     ap.add_argument('--fonseca'); ap.add_argument('--dinamica')
     ap.add_argument('--oc', default='oc'); ap.add_argument('--saida', default='saida_v2')
     a = ap.parse_args()
-    fech = a.fechamento
-    if not re.fullmatch(r'\d{4}-\d{2}', fech):
-        raise SystemExit('--fechamento AAAA-MM')
-    inicio = pd.Timestamp(f'{fech}-01')
-    fim = inicio + pd.offsets.MonthEnd(0)
+    if a.corte:
+        # rotina semanal (pedido 15): a pagar = não estava pago na DATA DE CORTE; o fechamento é a própria data
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', a.corte):
+            raise SystemExit('--corte AAAA-MM-DD')
+        fech = a.corte
+        fim = pd.Timestamp(a.corte)
+        inicio = pd.Timestamp(a.corte[:7] + '-01')
+    else:
+        fech = a.fechamento or ''
+        if not re.fullmatch(r'\d{4}-\d{2}', fech):
+            raise SystemExit('--fechamento AAAA-MM ou --corte AAAA-MM-DD')
+        inicio = pd.Timestamp(f'{fech}-01')
+        fim = inicio + pd.offsets.MonthEnd(0)
     F = a.fonseca or C.mais_recente_padrao('entrada/fonseca', 'Relatório de Custo*')
     D = a.dinamica or C.mais_recente_padrao('entrada/dinamica', 'Relatório de Custo*')
     print(f'Fonseca: {F}\nDinâmica: {D}\nFechamento {fech}: em aberto em {fim:%d/%m/%Y}')

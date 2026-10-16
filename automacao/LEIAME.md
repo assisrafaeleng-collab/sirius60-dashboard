@@ -106,6 +106,11 @@ Opções do classificador: --fonseca, --dinamica, --rateio (arquivo), --oc (past
 - decisoes_pontuais.csv com eap = NAO_CUSTO → o título sai do custo; parcela seguinte de uma NF herda a
   decisão da primeira (NAO_CUSTO não é herdado)
 
+## Rotina semanal (pedido 15)
+Um comando para custos + contas a pagar da semana, sem duplicidade: ver ../ROTINA_SEMANAL.md e a seção "Rotina semanal"
+do CLAUDE.md. `node ferramentas/semana/atualizar.js` (prévia) | `--confirmar` | `--desfazer <id>`. Usa semana_info.py,
+classificador.py --corte, contas_a_pagar.py --corte e importar.js (--apenas para relatório só da semana).
+
 ## Contas a pagar (CLAUDE.md, "Contas a pagar", 08/10/2026)
     py contas_a_pagar.py --fechamento 2026-09          # saida_v2/contas_2026-09.csv (+ _fora.csv e _resumo.json)
     node ferramentas/fechamento/importar.js --contas --fechamento 2026-09 --saida saida_v2              # prévia
