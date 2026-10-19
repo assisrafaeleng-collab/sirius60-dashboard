@@ -48,7 +48,28 @@ def montar(a):
     oc_nf_sem_titulo = [{'oc': r.oc, 'nf': int(r.nf), 'fornecedor': r.fornecedor}
                         for r in ocs[ocs.nf.notna()].drop_duplicates(['oc', 'nf']).itertuples() if (r.cnpj, int(r.nf)) not in nf_tit]
 
+    # Dinâmica: só o VALOR_RATEIO do Sirius (Rafael 19/10/2026). Valor cheio = a parte do Sirius passa do valor do
+    # título, ou é o título inteiro e outra obra também tem parte dele. Relatório só do Sirius: não dá para conferir.
+    bruto = C.padronizar(pd.read_excel(a.dinamica, dtype={'REF_LANCTO': str}), C.SIN_RATEIO, C.SIN_RATEIO.keys(), a.dinamica)
+    bruto = bruto[bruto['ref'].notna() & (bruto['pagar_receber'].astype(str).str.upper() == 'PAGAR')].copy()
+    bruto['sirius'] = C.e_sirius(bruto['cc'])
+    bruto['v'] = pd.to_numeric(bruto['rateio'], errors='coerce').fillna(0)
+    bruto['o'] = pd.to_numeric(bruto['original'], errors='coerce')
+    cheio = []
+    for ref, g in bruto[bruto.ref.isin(set(bruto[bruto.sirius].ref))].groupby('ref'):
+        s, outros, orig = g[g.sirius].v.sum(), g[~g.sirius].v.sum(), g.o.max()
+        if pd.notna(orig) and (s > orig + 0.01 or (outros > 0.005 and s >= orig - 0.01)):
+            r = g[g.sirius].iloc[0]
+            cheio.append({'ref': str(ref), 'documento': str(r.documento), 'fornecedor': C.norm(r['nome']),
+                          'sirius': round(float(s), 2), 'outras_obras': round(float(outros), 2), 'valor_titulo': round(float(orig), 2)})
+
     return {
+        'rateio_cheio': cheio,
+        'outras_obras_no_relatorio': bool((~bruto.sirius).any()),
+        # linhas SEM pagamento por fonte: zero = relatório só de pagos (o contas a pagar não é refeito por ele)
+        # (-1 = o relatório não permite conferir o pagamento)
+        'abertos': {f: int(((tudo.fonte == f) & (tudo.pago == False)).sum()) if tudo[tudo.fonte == f].pago.notna().all() else -1
+                    for f in ['Fonseca', 'Dinâmica']},
         'linhas': {f: int((tudo.fonte == f).sum()) for f in ['Fonseca', 'Dinâmica']},
         'pagos': {f: int((pagos.fonte == f).sum()) for f in ['Fonseca', 'Dinâmica']},
         'baixa_min': str(baixa.min().date()) if len(baixa) else None,

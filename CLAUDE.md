@@ -209,8 +209,17 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   - Vales/adiantamentos semanais da Sericita NÃO entram no contas a pagar (sem medição do período, só poluem);
     entram como custo apenas quando pagos.
   - Previsões das OCs 1787 e 1849 não entram no contas a pagar (comprador vai cancelar/baixar no TOTVS).
-  - PENDENTE (Rafael 16/10/2026): o vale ADIANT-09/10/26 (R$ 2.500,00) está rateado PROVISORIAMENTE pela composição do
-    BM4 (decisoes_pontuais.csv). Quando chegar o BM5, refazer este vale (e os demais vales de outubro) pela composição do BM5.
+  - VALES DO MÊS (Rafael 19/10/2026; substitui o "pela composição do BM4" de 16/10): os vales de um mês são abatidos no
+    BM do FIM daquele mês, não no anterior. Até o BM sair, cada vale do mês é custo no pagamento, rateado PROVISORIAMENTE
+    entre 2.1.2/2.1.6/2.1.7/2.1.8 pelo avanço MEDIDO no mês (Δ% desde o fim do mês anterior × orçado da linha; sem
+    medição no mês, pelo cronograma: parte da duração da linha no mês × orçado). A prévia da rotina calcula a proposta
+    (saida_semana/<corte>/vales_<mês>.csv, atualizar.js propostaVales) e avisa se o decisoes_pontuais.csv está diferente
+    (a proporção muda a cada medição; copiar com backup). SEMPRE que sair o BM do mês: tirar os vales do mês desse rateio
+    provisório e lançá-los pela composição do BM (a carga substitui o mês inteiro, sem duplicar). Regra também no
+    automacao/LEIAME.md.
+  - PENDENTE: outubro/2026 — vales ADIANT-09/10/26 e ADIANT- 16/10/2026 (R$ 2.500,00 cada) rateados pela medição de
+    01/10 a 16/10 (forma 2.1.6 48,89% → 100% e armação 2.1.7 35,26% → 55,26%: 43,64% / 56,36%; decisoes_pontuais.csv,
+    backup ..._backup_2026-10-19.csv). Quando chegar o BM5, refazer TODOS os vales de outubro pela composição do BM5.
 - Outras decisões (Rafael, 07 e 08/10/2026):
   - ISS RETIDO de nota (linhas ISSRET): NAO_CUSTO, porque o valor da nota (rateio/baixado) já inclui o imposto;
     o ISS fica dentro do custo do serviço. ISS da Prefeitura que NÃO for retenção de nota → 19.1.22.
@@ -220,7 +229,8 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   - DCTFWEB (Receita Federal) e FGTS (Caixa) da Fonseca = impostos de funcionários a abater no INSS da obra → 19.1.25
     (antiga 18.1.1), regra fixa em regras_manuais.csv (Rafael 16/10/2026). Nome da linha passa a ser "Funcionários
     diretos / impostos" (supabase/orcamento/10-nome-19-1-25.sql RODADO pelo Rafael em 16/10/2026 e conferido: 428.131,20,
-    reserva = true; orcamento.csv com o nome novo; a planilha oficial ainda tem o nome antigo na 18.1.1).
+    reserva = true; orcamento.csv com o nome novo; planilha oficial v2 trocada em 16/10 só na aba Orçamento B261 — a
+    CPU B130 continua "Mão de Obra Direta"; backup ..._v2_backup_2026-10-16.xlsx).
   - Caixa Cartões (cartão pré-pago/alimentação de funcionário, R$ 700,00 em 08/2026) → 19.1.25 (mão de obra de
     apoio, indireto/reserva; Rafael 09/10, pedido 14A). Antes: 18.1.1 (08/10) e, antes disso, NAO_CUSTO.
   - Combustível da obra (Auto Posto; gasolina do carro de apoio) → 17.1.14 (no orçamento final:
@@ -228,6 +238,10 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   - Areial Mariana (pedra de mão usada na concretagem dos fustes, no lugar de concreto) → 2.1.5
     (concreto usinado, apenas material).
   - Diária mista "Concretagem blocos e limpeza dos blocos" (BM3 item 3.5, R$ 800) → 50% 2.1.8 / 50% 2.1.2.
+  - Augusto de Paula de Sousa (CNPJ 05.533.505; gás da casa dos funcionários) → 1.1.6 (Rafael 19/10/2026; regras_manuais.csv).
+  - Betonita (CNPJ 26.718.047): o valor TODO do rateio do Sirius, concreto e serviço (bomba), → 2.1.5 (Rafael 19/10/2026;
+    regra fixa em regras_manuais.csv, backup ..._backup_2026-10-19.csv). Os m³ das NFs (524, 616, 725) o Rafael manda no
+    relatório de OC do fim do mês para conferir; a NF 725 (OC 38544) ainda não estava no relatório até 16/10.
 
 ## Orçamento oficial (decisão do Rafael, 08/10/2026; arquivo trocado em 14/10/2026, pedidos 19 e 20)
 - Arquivo oficial (desde 14/10/2026, depois do SQL 9): "Orcamento_Rua_Sirius_60_-_Final_-_14-10-26_v2.xlsx" (abas
@@ -305,10 +319,11 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
 
 ## Rotina semanal de custos + contas a pagar (pedido 15; Rafael 09/10/2026)
 - Passo a passo em ROTINA_SEMANAL.md. Comando: node ferramentas/semana/atualizar.js (prévia) | --confirmar | --desfazer
-  <id> [--confirmar]. Entrada: automacao/entrada/AAAA-MM-DD/ (nome = data de corte; a pasta mais nova é a usada).
+  <id> [--confirmar] | --ultima (só leitura). Entrada: pastas fixas por fonte (seção "Entrada dos relatórios de custo",
+  19/10/2026; a pasta por data automacao/entrada/AAAA-MM-DD/ não é mais lida — as de 30/09 e 13/10 ficam como histórico).
   Saída: automacao/saida_semana/AAAA-MM-DD/ (previa.md, logs, carga_<id>.json; fora do git).
-- Só orquestra: classificador.py (--completo --corte), contas_a_pagar.py (--corte), semana_info.py (leitura e NF ↔ OC)
-  e importar.js (gravação, backup e desfazer; --apenas para relatório só da semana).
+- Só orquestra: classificador.py (--completo --corte), contas_a_pagar.py (--corte), semana_info.py (leitura, NF ↔ OC,
+  rateio cheio, linhas em aberto) e importar.js (gravação, backup e desfazer; o --apenas não é mais usado pela rotina).
 - REGRA ANTI-DUPLICIDADE: CHAVE DO TÍTULO = fonte + CNPJ (sem CNPJ, o fornecedor) + documento com a parcela (sem zeros
   à esquerda) + data de baixa (ferramentas/semana/chave.js). Mesma chave = mesmo pagamento, em quantos relatórios vier.
   Relatório ACUMULADO (pagamentos antes dos últimos 10 dias): substitui só os meses com diferença (importar.js), nunca
@@ -330,6 +345,38 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
 - NF ↔ OC (3B): chave = nº da NF + CNPJ do relatório de OC (ou nº da OC no documento); o classificador já abre a NF
   pelos itens da OC. Em 09/10 só 15,5% do material da Dinâmica tinha OC ligada (os relatórios de OC só cobrem parte de
   ago/set). A tabela de regras por item de OC (3B-b) espera o Rafael mandar o relatório de OC completo da obra.
+
+## Entrada dos relatórios de custo (decisão do Rafael, 19/10/2026; ajusta a rotina do pedido 15)
+- Pastas FIXAS, uma por fonte (substituem a pasta por data automacao\entrada\AAAA-MM-DD\):
+  - Dinâmica: automacao\entrada\dinamica\ → "Relatório de Custo DINAMICA - Até DD-MM-AA"
+  - Fonseca: automacao\entrada\fonseca\ → "Relatório de Custo FONSECA - Até DD-MM-AA" (aceita "Fonseca e Lage")
+- Data de corte = a do nome ("Até DD-MM-AA"; "Até MM-AA" dos antigos = último dia do mês). O atualizar.js usa o
+  relatório MAIS NOVO de cada pasta; os antigos ficam como histórico (NÃO apagar). Arquivo fora do padrão do nome é
+  ignorado (listado nos avisos); dois com a mesma data na mesma pasta = erro; a fonte é conferida também pelo cabeçalho
+  (arquivo na pasta errada para). Datas de corte diferentes entre as fontes: a prévia mostra e PARA (nada é lido).
+- Os relatórios são ACUMULADOS: a carga SUBSTITUI os meses cobertos, nunca soma por cima. Relatório que parece só da
+  semana (1º pagamento nos últimos 10 dias até o corte) BLOQUEIA; o modo --apenas não é mais usado pela rotina.
+- CUIDADO MÁXIMO COM DUPLICIDADE. Antes de qualquer prévia:
+  1. a prévia (e `node ferramentas/semana/atualizar.js --ultima`, só leitura) mostra a ÚLTIMA carga gravada: id, data de
+     corte, fontes, se foi confirmada e se cada passo (custo do mês e contas a pagar) está mesmo no banco (manifesto
+     carga_<id>.json + tabelas importacoes e contas_a_pagar). O manifesto passa a guardar os nomes dos 2 relatórios.
+  2. BLOQUEIA: mesma chave (fonte + CNPJ + documento + parcela) nas duas fontes; título JÁ GRAVADO (carga, histórico
+     manual ou tela; mesmo CNPJ + documento com a parcela) que entraria de novo com OUTRA chave (outra fonte ou outra data
+     de baixa).
+  3. Dinâmica: só o VALOR_RATEIO do Sirius. BLOQUEIA se a parte do Sirius passar do valor do título, ou se for o título
+     inteiro e outra obra também tiver parte dele (valor cheio). Relatório só com linhas do Sirius: aviso (não dá para
+     conferir pelas outras obras).
+  4. Relatório SÓ DE PAGOS (fonte sem nenhuma linha em aberto): o contas a pagar dessa fonte NÃO é refeito por ele; fica
+     a lista do corte anterior (banco) menos os títulos que agora aparecem pagos até o corte. Sem corte anterior: bloqueia.
+- Estado em 19/10/2026: nas pastas, "Relatório de Custo DINAMICA - Até 16-10-26" e "Relatório de Custo Fonseca e Lage -
+  Até 16-10-26" (mais novos) + os "Até 09-26" (histórico); na fonseca\ também os antigos "SIRIUS 60 …" (ignorados).
+  A carga de 13/10 (fcdf522b) foi conferida no banco pelo --ultima (custo 2026-10 e contas 2026-10-13 presentes).
+- 2ª CARGA REAL (19/10/2026, corte 16/10, acumulado, 1ª pelas pastas fixas; carga semanal
+  055493cf-69eb-42e8-bd63-f2eff90ece0a; custo 2026-10 importação 5d307721…; contas a pagar carga d69c70d9…; conferida pelo
+  --ultima): ago 188.261,04 e set 123.907,98 sem mudança; out 52.118,90 → 64.551,40 (Madeiras 2104/02 9.742,50 em 2.1.3;
+  vale 16/10 2.500,00; Augusto 190,00 em 1.1.6; vale 09/10 sai do BM4 e vai pela medição: 2.1.6 43,64% / 2.1.7 56,36%).
+  A pagar no corte R$ 23.985,49 (5 títulos: DCTFWEB, FGTS, Tecidos 25602254/01, Ferragens Santa Mônica 100728/01
+  6.265,46, Tecidos 25527852/02 460,18). Zero pendências e zero bloqueios na prévia.
 
 ## Painel "Pontos de atenção" (pedido 14B; decisões do Rafael, 09/10/2026)
 - REGRA DE OURO: não inventar índice, equipe ou prazo. Faltou → "dado pendente" e lista para o Rafael.

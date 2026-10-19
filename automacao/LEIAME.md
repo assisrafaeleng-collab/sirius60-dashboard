@@ -86,6 +86,16 @@ pagos; cada um é rateado pela composição do BM a que pertence (2.1.2 / 2.1.6 
 decisoes_pontuais.csv — provisório até o Rafael confirmar as EAPs. Título novo da Sericita sem decisão vai
 para pendências (regra 'pendente' em regras.csv). Nunca lançar o bruto do BM.
 
+VALES DO MÊS (Rafael, 19/10/2026): os vales de um mês são abatidos no BM do FIM daquele mês (não no anterior).
+- Até sair o BM do mês: cada vale entra como custo no pagamento, rateado PROVISORIAMENTE entre 2.1.2 / 2.1.6 /
+  2.1.7 / 2.1.8 pelo avanço MEDIDO no mês (Δ% desde o fim do mês anterior × orçado da linha); sem medição no mês,
+  pelo cronograma. A rotina semanal (ferramentas/semana/atualizar.js) calcula a proposta a cada prévia
+  (saida_semana/<corte>/vales_<mês>.csv) e avisa quando o decisoes_pontuais.csv está diferente; copiar as linhas
+  da proposta para o decisoes_pontuais.csv (com backup) e rodar a prévia de novo. A proporção muda a cada medição.
+- SEMPRE que sair o BM do mês: TIRAR os vales do mês desse rateio provisório e lançá-los no local certo, pela
+  composição do BM (decisoes_pontuais.csv, alerta "provisório: refazer pelo BM do mês" → composição do BM). A carga
+  substitui o mês inteiro, então refazer não duplica nada.
+
 ## Uso mensal
     py gerar_orcamento.py                         # quando o dados.json mudar
     py gerar_regras.py fechamentos/<consolidado>.xlsx
