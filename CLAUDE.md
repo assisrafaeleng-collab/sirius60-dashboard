@@ -209,17 +209,15 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   - Vales/adiantamentos semanais da Sericita NÃO entram no contas a pagar (sem medição do período, só poluem);
     entram como custo apenas quando pagos.
   - Previsões das OCs 1787 e 1849 não entram no contas a pagar (comprador vai cancelar/baixar no TOTVS).
-  - VALES DO MÊS (Rafael 19/10/2026; substitui o "pela composição do BM4" de 16/10): os vales de um mês são abatidos no
-    BM do FIM daquele mês, não no anterior. Até o BM sair, cada vale do mês é custo no pagamento, rateado PROVISORIAMENTE
-    entre 2.1.2/2.1.6/2.1.7/2.1.8 pelo avanço MEDIDO no mês (Δ% desde o fim do mês anterior × orçado da linha; sem
-    medição no mês, pelo cronograma: parte da duração da linha no mês × orçado). A prévia da rotina calcula a proposta
-    (saida_semana/<corte>/vales_<mês>.csv, atualizar.js propostaVales) e avisa se o decisoes_pontuais.csv está diferente
-    (a proporção muda a cada medição; copiar com backup). SEMPRE que sair o BM do mês: tirar os vales do mês desse rateio
-    provisório e lançá-los pela composição do BM (a carga substitui o mês inteiro, sem duplicar). Regra também no
-    automacao/LEIAME.md.
-  - PENDENTE: outubro/2026 — vales ADIANT-09/10/26 e ADIANT- 16/10/2026 (R$ 2.500,00 cada) rateados pela medição de
-    01/10 a 16/10 (forma 2.1.6 48,89% → 100% e armação 2.1.7 35,26% → 55,26%: 43,64% / 56,36%; decisoes_pontuais.csv,
-    backup ..._backup_2026-10-19.csv). Quando chegar o BM5, refazer TODOS os vales de outubro pela composição do BM5.
+  - VALES DO MÊS (Rafael 09/11/2026; confirma o pedido 004-A de 06/11 e SUBSTITUI o rateio provisório de 19/10): desde
+    01/10/2026 o vale semanal NÃO é custo quando é pago e NÃO tem rateio provisório. Ele é abatido no BM do FIM do mês e
+    entra no custo junto com a medição, pelo BRUTO (pagamento do BM + vales do mês), na DATA do pagamento do BM, pela
+    composição do BM (decisoes_pontuais.csv, documento do pagamento). automacao/sericita_bms.csv liga cada vale ao
+    pagamento do seu BM (bm, pagamento, vale); o classificador.py soma o vale ao pagamento e o tira do custo (vales_sericita).
+    Vale sem BM ainda: fora do custo, aviso "aguardando o BM do fim do mês" na prévia. Quando sair o BM: acrescentar os
+    vales no sericita_bms.csv e a composição no decisoes_pontuais.csv. Vales de ago e set continuam como gravados (um
+    lançamento por vale). Exemplo: BM5 = RPA 000000003/01 30/10 R$ 27.067,00 + vales 09/10, 16/10, 23/10 = R$ 34.567,00.
+    Pendente: vale ADIANT-06/11/26 (R$ 2.500,00) aguardando o BM6 (novembro). Regra também no automacao/LEIAME.md.
 - Outras decisões (Rafael, 07 e 08/10/2026):
   - ISS RETIDO de nota (linhas ISSRET): NAO_CUSTO, porque o valor da nota (rateio/baixado) já inclui o imposto;
     o ISS fica dentro do custo do serviço. ISS da Prefeitura que NÃO for retenção de nota → 19.1.22.
@@ -250,9 +248,31 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   calculados preservados. Fundação separada do Pilotis; novo subgrupo 3.1 PILOTIS (ver seção do pedido 20). As 87 linhas
   dos grupos 2 e 3 batem com o banco ao centavo. Histórico: "..._14-10-26_corrigido.xlsx" (pedido 19, antes do Pilotis) e
   "..._03-08-26.xlsx"; a "...14-10-26_NAO_USAR.xlsx" e a "..._organizado.xlsx" não valem.
-- Totais NO BANCO (o que o site usa; grupo 18 no indireto, 17.1.14 no direto): custo direto R$ 6.834.476,17 (era
-  7.200.717,91; a planilha dá 6.834.476,18 — 1 centavo de arredondamento das linhas); indireto R$ 2.874.508,08; total
-  R$ 9.708.984,25 (era 10.075.225,99). Grupo 2 573.126,00; grupo 3 1.873.239,28 (planilha 1.873.239,30).
+- CONCRETO DA FUNDAÇÃO 2.1.5 (Rafael 09/11/2026; MUDANÇA DE PROJETO, volume menor): id 671 362,21 → 326,20 m³,
+  R$ 239.061,64 → 215.292,40 (unitário 660 igual). SQL supabase/orcamento/11-concreto-2-1-5.sql RODADO pelo Rafael em
+  09/11/2026 (travas OK; desfazer e 11-conferir-estado.sql ao lado; backups orcamento_215_bkp_20261109 e
+  curva_s_215_bkp_20261109). Decisões: medição da 2.1.8 NÃO muda (mesmo % concluído; só valor agregado e saldo da 2.1.5
+  caem); horas da 2.1.5 NÃO mudam (674,7 h; exceção à regra "horas acompanham a quantidade"); curva planejada muda só
+  em R$ nas semanas S06–S16 (6.037.152,17 → 6.013.382,93). Planilha v2 (D17 = 215292,4/660) e orcamento.csv
+  atualizados; backups ..._v2_backup_2026-11-09.xlsx e orcamento_backup_2026-11-09.csv.
+- ESCAVAÇÃO 2.1.2 e AÇO 2.1.4 DA FUNDAÇÃO (Rafael 09/11/2026; mesma regra do 2.1.5: medições, % concluído, horas e pagos
+  NÃO mudam; só quantidade, valor e, por consequência, valor agregado e saldo). SQL 12 (supabase/orcamento/
+  12-escavacao-2-1-2.sql): id 668 343,20 → 308,00 m³, R$ 85.800,00 → 77.000,00 (unit. 250), curva S03–S13 −8.800,00.
+  SQL 13 (13-aco-2-1-4.sql): id 670 16.394,38 → 15.239,38 kg, R$ 113.449,10 → 105.456,51 (unit. 6,92; 589,5 h), curva
+  S04–S15 −7.992,59. AMBOS RODADOS pelo Rafael em 09/11/2026 (curva conferida: 117 semanas, 47.529,7 h, R$ 5.996.590,34).
+  Desfazer ao lado (desfazer o 13 antes do 12); backups orcamento_212/214_bkp_20261109 e curva_s_212/214_bkp_20261109.
+  SQL 14 (14-armacao-2-1-7.sql): a armação 2.1.7 (MO, id 673) ANDA JUNTO com o aço (Rafael 09/11): 16.394,38 →
+  15.239,38 kg, R$ 49.183,13 → 45.718,14 (unit. 3,00; 255,5 h iguais), curva S04–S15 −3.464,99. RODADO 09/11/2026 (curva
+  conferida: 117 semanas, 47.529,7 h, R$ 5.993.125,35). Desfazer na ordem 14 → 13 → 12; backups orcamento_217_bkp_20261109
+  e curva_s_217_bkp_20261109. Planilha v2: D14 = 308; D16 = 15.239,38; D19 = D16; notas em E14/E16/E19 e subtítulo A2;
+  orcamento.csv atualizado. Backups ..._v2_backup_2026-11-09_passos12e13.xlsx, ..._passo14.xlsx,
+  orcamento_backup_2026-11-09_passos12e13.csv e orcamento_backup_2026-11-09_passo14.csv.
+- Totais NO BANCO (o que o site usa; grupo 18 no indireto, 17.1.14 no direto): custo direto R$ 6.790.449,35 desde os
+  SQL 12 a 14 (09/11/2026; 6.810.706,93 depois do SQL 11; 6.834.476,17 depois do SQL 9; 7.200.717,91 antes); indireto
+  R$ 2.874.508,08; total R$ 9.664.957,43 (era 9.685.215,01; antes 9.708.984,25). Grupo 2 529.099,18 (era 549.356,76 e
+  573.126,00); grupo 3 1.873.239,28 (planilha 1.873.239,30). Curva planejada (valor) R$ 5.993.125,35.
+  Planilha v2: direto 7.194.580,57 (sem a 17.1.14; com o grupo 18; centavos de arredondamento por linha), total da
+  planilha −44.026,81 em relação ao de 14/10.
 - Totais da planilha v2: custo direto R$ 7.238.607,39 (7.262.607,39 com a 17.1.14); indireto R$ 2.446.376,88; total
   geral R$ 9.684.984,27 (com o grupo 18 e sem a 17.1.14). (Antes, corrigido de 14/10: direto 7.604.849,11; total
   10.051.225,99. 03-08-26: direto 7.527.387,47; total 9.973.764,35.)
@@ -377,6 +397,53 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   vale 16/10 2.500,00; Augusto 190,00 em 1.1.6; vale 09/10 sai do BM4 e vai pela medição: 2.1.6 43,64% / 2.1.7 56,36%).
   A pagar no corte R$ 23.985,49 (5 títulos: DCTFWEB, FGTS, Tecidos 25602254/01, Ferragens Santa Mônica 100728/01
   6.265,46, Tecidos 25527852/02 460,18). Zero pendências e zero bloqueios na prévia.
+- 3ª CARGA REAL (09/11/2026, corte 06/11, acumulado; carga semanal 2da3b04c-3635-492f-a88d-80a6ab923177; custo 2026-10
+  importação 93b4e9ff…, 2026-11 e77d4be0…; contas a pagar carga e1b0c849…; conferida pelo --ultima). Antes dela, as cargas
+  de 30/10 entraram por SQL da prévia (automacao/previas/2026-10-30: carga + ajuste dos vales do BM5 db6333fc…).
+  ago, set e out sem mudança de total (out 150.722,01; BM5 pelo bruto 34.567,00 em 30/10; Tecidos 25527852 e 25602254/01-02
+  2.1.3 → 17.1.10, ferramentas); nov 712,04 (Aço Sales 212931/01 2.1.4, Tecidos 25602254/03 17.1.10). A pagar no corte
+  R$ 32.996,21 (Betonita 725 32.340,00 em 2.1.5, emissão 24/09, venc. 09/11; CEMIG 258,03; Tecidos 25733847/01 298,18;
+  Essencial 70994/01 100,00) + Concretominas 659 17.320,00 venc. 15/11 (SQL automacao/previas/2026-11-09_concreto/
+  contas_concretominas_0611.sql RODADO pelo Rafael em 09/11/2026: fechamento 2026-11-06 = 11 linhas, R$ 50.316,21).
+  Mudanças na rotina: vales da Sericita (acima) e leitura também de automacao/entrada/relatorio OC (Relatorio de Ordem de
+  Compra*). Decisões (decisoes_pontuais.csv, backup _2026-11-09): Essencial 70994/01 locação de furadeira → 17.1.10;
+  Tecidos NF 25733847: furadeira → 17.1.10, arame e prego → 2.1.7 (pelos itens da OC). LOCAÇÃO DE EQUIPAMENTO (Rafael
+  09/11): perguntar item a item, salvo se a OC disser qual é o equipamento e houver linha própria para ele.
+- CONCRETO SEM TÍTULO NO FINANCEIRO (pedido 008, 09/11/2026; automacao/previas/2026-11-09_concreto/resumo.md): NF 725 Betonita
+  (OC 38544, 50 m³, R$ 32.340,00) e NF 659 Concretominas (OC 39484, 24 m³, R$ 17.320,00, uma concretagem só) lançadas à mão
+  no contas a pagar (fechamento 2026-10-30, contas_concreto.sql RODADO; e no 2026-11-06). "QUITADO" no relatório de OC =
+  OC atendida, NÃO nota paga.
+- OC 39924 BETONITA (Rafael 09/11/2026; PDF em automacao\oc\, fora dos relatórios; OC 04/11, entrega 03/11, 45 dias):
+  35,50 m³ × 640 + bomba 900 = R$ 23.620,00, SEM NF. 12 m³ → 3.1.3 Pilotis (7.984,23) e 23,50 m³ → 2.1.5 (15.635,77), bomba
+  proporcional aos m³. Contas a pagar 'previsto_sem_nf', fechamento 2026-11-06, venc. ESTIMADO 18/12/2026
+  (automacao/previas/2026-11-09_concreto/contas_oc39924.sql RODADO 09/11: fechamento = 13 linhas, R$ 73.936,21). Quando a
+  NF chegar: decisão no decisoes_pontuais.csv com a mesma divisão 3.1.3 / 2.1.5.
+- CORTE 13/11/2026 (pedido 010, 16/11/2026; automacao/previas/2026-11-13/resumo.md). SQLs GERADOS, NÃO rodados. Ordem:
+  carga_2026-11-13.sql (10 linhas, 4 títulos, R$ 32.996,21; importação b2451416-3b06-46e1-a43d-d3b9b4751184: Betonita NF 725
+  32.340,00 em 2.1.5 paga 09/11, CEMIG 258,03, Essencial 100,00, Tecidos 25733847/01 298,18; todos estavam no a pagar de 06/11)
+  → contas_2026-11-13.sql (fechamento '2026-11-13', 5 linhas, R$ 25.988,94; carga 3f9847ad…) → contas_oc39924_2026-11-13.sql
+  (OC 39924, carga 9d1f6c3e…; fechamento fica com 7 linhas, R$ 49.828,94) → conferencia_2026-11-13.sql (nov R$ 33.708,25).
+  Meses fechados (ago, set, out) bateram título a título com o banco (nenhum pagamento para trás). Banco exportado em 16/11 por
+  script só de leitura (110 linhas de custos, 38 de contas) para automacao/entrada/banco_custos_atual.csv e banco_contas_atual.csv.
+  Vales da Sericita 06/11 e 13/11 (R$ 5.000,00) fora do custo, aguardando o BM6. Decisões do Rafael (16/11/2026):
+  - OC 39924 Betonita: o relatório de OC de novembro traz um item novo "M3 FALTANTE" R$ 220,00 (OC = R$ 23.840,00). Vai NA LINHA
+    DO CONCRETO, proporcional aos m³ como a bomba; MANTIDA a divisão 12 m³ Pilotis / 23,50 m³ Fundação: 3.1.3 8.058,60 e 2.1.5
+    15.781,40. O contas_a_pagar.py não gera OC sem NF: enquanto não houver NF, repetir a OC em SQL à parte a cada corte.
+  - Construrey NF 10739/01 (Sikadur 32 1 kg, R$ 100,90, OC 39084) → 3.1.1 Pilotis (decisoes_pontuais.csv).
+  - Concretominas NF 659/01 → 2.1.5 (mantido; decisoes_pontuais.csv). Betonita continua na regra fixa → 2.1.5 (NF 725).
+  - Laje treliçada da Itacolomy (CNPJ 04.977.558; OC 40273, 12/11/2026, R$ 14.300,00, sem NF) → 3.1.8 Pilotis (regras_manuais.csv,
+    item "LAJE TRELICADA"; alerta: conferir o pavimento quando vier a laje treliçada do Subsolo, 3.2.12).
+  - Relatório da Fonseca em LAYOUT NOVO do TOTVS (desde 13/11: 150 colunas; 'CentroCusto' = nome da obra, 'Centro de Custo' =
+    código 1.02.0006; ' Vencimento'; linha de total só com o Valor líquido): classificador.py SINONIMOS cc + 'centrocusto'.
+    Testado: lendo o arquivo original, saída igual à da cópia com as colunas antigas.
+  - OC CANCELADA é ignorada em classificador.ler_ocs (a OC 39475 da Concretominas, cancelada, dividia a NF 659 com a 39484).
+    Testado: nenhum valor mudou.
+  Backups: decisoes_pontuais_backup_2026-11-16.csv, regras_manuais_backup_2026-11-16.csv, automacao/backup/2026-11-16/classificador.py.
+  Pente fino do concreto (até 30/10 executados 307,77 m³; documentados 212 m³ até 30/10 e 247,5 m³ com a OC 39924): faltam
+  ≈ 95,77 m³ (≈ R$ 63.200) ou 60,27 m³ se a OC 39924 entrou no medido. PEDIR ao financeiro os m³ da NF 524 (estimados 94 m³ a
+  R$ 640) e conferir as NFs Betonita 594 (ADM. Central, R$ 5.120) e 475 (Lote Canela, R$ 21.380).
+  Pendentes: data de início do Pilotis no etapa.csv (material depois do BM5 ainda vai para a Fundação); OC sem NF no
+  contas_a_pagar.py (proposta).
 
 ## Painel "Pontos de atenção" (pedido 14B; decisões do Rafael, 09/10/2026)
 - REGRA DE OURO: não inventar índice, equipe ou prazo. Faltou → "dado pendente" e lista para o Rafael.

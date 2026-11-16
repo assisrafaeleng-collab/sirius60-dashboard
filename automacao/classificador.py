@@ -38,7 +38,9 @@ SINONIMOS = {
     'historico':  ['historico'],
     'emissao':    ['data de emissao', 'emissao'],
     'vencimento': ['data de vencimento', 'vencimento'],
-    'cc':         ['centro de custo', 'centro custo', 'descricao centro de custo'],
+    # 'centrocusto': layout novo do TOTVS da Fonseca (13/11/2026; Rafael 16/11/2026, pedido 010). Nele 'CentroCusto' traz o
+    # nome da obra e 'Centro de Custo' o código 1.02.0006; 'CentroCusto' vem antes no arquivo e fica com o 'cc'.
+    'cc':         ['centro de custo', 'centro custo', 'descricao centro de custo', 'centrocusto'],
     'original':   ['valor original'],
     'liquido':    ['valor liquido', 'valor liquido-quitado'],
     'cnpj':       ['cnpj/cpf'],
@@ -135,7 +137,7 @@ def pago(t):
 #  - título dividido com outras obras que também está no relatório da Dinâmica: entra pelo rateio,
 #    e a linha da Dinâmica (valor cheio) sai do custo.
 SIN_RATEIO = {
-    'ref': ['ref_lancto'], 'cnpj': ['cpf_cnpj_cliente_fornecedor'], 'emissao': ['_emissao', 'data_emissao'],
+    'ref': ['ref_lancto'], 'cnpj': ['cpf_cnpj_cliente_fornecedor'], 'emissao': ['_emissao', 'data_emissao', 'emissao'],
     'nome': ['nomefantasia_cliente_fornecedor'], 'original': ['valororiginal'], 'baixado': ['valorbaixa'],
     'vencimento': ['vencimento', 'data_vencimento'], 'baixa': ['data_baixa'], 'status': ['status_lancto'],
     'cc': ['centrocusto_rateio'], 'documento': ['numero_documento'], 'historico': ['historico'],
@@ -203,6 +205,51 @@ NAO_CUSTO = {'previsão financeira': r'PREV\.?\s*FINANC', 'aporte': r'\bAPORTE\b
 # pelo número do documento; preenchido no modo --completo (ver __main__)
 NAO_CUSTO_DOC = {}
 
+# ---- Vales da Sericita (Rafael 09/11/2026; confirma o pedido 004-A de 06/11 e substitui o rateio provisório de 19/10) ----
+# A partir de outubro/2026 o vale semanal NÃO é custo quando é pago: ele é abatido no BM do fim do mês e entra como custo
+# junto com a medição, pelo BRUTO (pagamento do BM + vales do mês), na data do pagamento do BM, rateado pela composição
+# do BM (decisoes_pontuais.csv do documento do pagamento). sericita_bms.csv liga cada vale ao pagamento do seu BM.
+# Vale sem BM (o BM do mês ainda não saiu) fica fora do custo, como aviso "aguardando o BM". Os vales de agosto e
+# setembro continuam como foram gravados (um lançamento por vale).
+SERICITA = '23668984'
+VALES_SO_NO_BM_DESDE = '2026-10-01'
+VALE_AGUARDANDO = 'vale da Sericita aguardando o BM do fim do mês: entra no custo com a medição (Rafael 09/11/2026)'
+
+def e_vale_sericita(t):
+    return ((t.cnpj == SERICITA) & t.documento.astype(str).str.upper().str.contains('ADIANT')
+            & (pd.to_datetime(t.competencia, errors='coerce') >= pd.Timestamp(VALES_SO_NO_BM_DESDE)))
+
+def vales_sericita(custo, nao_custo):
+    """Tira os vales da Sericita (desde out/2026) do custo. Vale ligado a um BM cujo pagamento está no custo: soma no
+    pagamento (bruto). Os outros: aguardando o BM. Devolve (custo, nao_custo, somado) — somado = [(fonte, mes, valor)]
+    do que foi somado aos pagamentos (a conferência por fonte desconta isso)."""
+    try:
+        bms = pd.read_csv('sericita_bms.csv', dtype=str).fillna('')
+    except FileNotFoundError:
+        bms = pd.DataFrame(columns=['bm', 'pagamento', 'vale', 'obs'])
+    vale_bm = {r.vale.strip(): (r.bm, r.pagamento.strip()) for r in bms.itertuples()}
+    custo = custo.copy()
+    eh = e_vale_sericita(custo)
+    tipos, somado = {}, []
+    for i in custo.index[eh]:
+        doc = str(custo.at[i, 'documento']).strip()
+        bm = vale_bm.get(doc)
+        alvo = custo.index[(~eh) & (custo.cnpj == SERICITA) & (custo.documento.astype(str).str.strip() == bm[1])] if bm else []
+        if len(alvo) == 1:
+            j = alvo[0]
+            custo.at[j, 'valor'] = round(custo.at[j, 'valor'] + custo.at[i, 'valor'], 2)
+            somado.append((custo.at[j, 'fonte'], custo.at[j, 'mes'], custo.at[i, 'valor']))
+            tipos[i] = f'vale da Sericita abatido no {bm[0]}: somado ao pagamento {bm[1]} (bruto do BM; Rafael 09/11/2026)'
+        else:
+            if bm and len(alvo) > 1:
+                raise SystemExit(f'ERRO: pagamento {bm[1]} do {bm[0]} aparece {len(alvo)} vezes no custo')
+            tipos[i] = VALE_AGUARDANDO + (f' — pagamento {bm[1]} do {bm[0]} ainda não está no custo' if bm else '')
+    if tipos:
+        fora = custo.loc[list(tipos)].assign(tipo=pd.Series(tipos))
+        nao_custo = pd.concat([nao_custo, fora], ignore_index=True)
+        custo = custo.drop(index=list(tipos)).reset_index(drop=True)
+    return custo, nao_custo, somado
+
 def separar_nao_custo(tit):
     tipo = pd.Series('', index=tit.index)
     # já contado em outra fonte (cruzamento Dinâmica x Rateio)
@@ -248,6 +295,14 @@ def ler_ocs(pasta):
             o = o[e_sirius(o['cc'])]
         else:
             print(f'AVISO: {f} não tem centro de custo — considerando todas as OCs como {CENTRO_CUSTO}')
+        # OC CANCELADA não vale para nada (Rafael 16/11/2026, pedido 010): a OC 39475 da Concretominas, cancelada e
+        # repetida na 39484, dividia a NF 659 entre as duas
+        if 'status' in o:
+            cancel = o['status'].astype(str).map(norm).str.startswith('CANCEL')
+            if cancel.any():
+                print(f'AVISO: {cancel.sum()} linha(s) de OC CANCELADA ignorada(s) em {os.path.basename(f)}: '
+                      f'{sorted(set(o.loc[cancel, "oc"].astype(str)))}')
+            o = o[~cancel]
         o['arquivo'] = f
         dfs.append(o)
     o = pd.concat(dfs)
@@ -632,6 +687,7 @@ if __name__ == '__main__':
               if (c, d) not in confirmados}
     custo = pd.concat([custo, nao_custo[duvida].drop(columns='tipo')], ignore_index=True)
     nao_custo = nao_custo[~duvida].reset_index(drop=True)
+    custo, nao_custo, somado_bm = vales_sericita(custo, nao_custo)
     forcar.update(duplicidades(custo, pontuais))
 
     # ---- só a competência pedida ----
@@ -661,7 +717,8 @@ if __name__ == '__main__':
     for f in ['Fonseca', 'Dinâmica', 'Rateio']:
         rel = round(tudo.loc[(tudo.fonte == f) & (tudo.mes == comp), 'valor'].sum(), 2)
         dist = round(lanc.loc[lanc.fonte == f, 'valor'].sum() + pend.loc[pend.fonte == f, 'valor'].sum()
-                     + nao_m.loc[nao_m.fonte == f, 'valor'].sum(), 2)
+                     + nao_m.loc[nao_m.fonte == f, 'valor'].sum()
+                     - sum(v for fo, me, v in somado_bm if fo == f and me == comp), 2)  # vales somados ao BM
         if abs(rel - dist) >= 0.01:
             print(f'ERRO: {f} {comp}: relatório {brl(rel)} x classificado + pendente + não custo {brl(dist)}')
             erro = True

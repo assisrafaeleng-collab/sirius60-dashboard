@@ -49,3 +49,5 @@ automacao/conciliacao_*.xlsx
 
 # python
 __pycache__/
+# previas de fechamento (pedido 003)
+automacao/previas/

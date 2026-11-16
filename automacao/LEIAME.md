@@ -86,15 +86,13 @@ pagos; cada um é rateado pela composição do BM a que pertence (2.1.2 / 2.1.6 
 decisoes_pontuais.csv — provisório até o Rafael confirmar as EAPs. Título novo da Sericita sem decisão vai
 para pendências (regra 'pendente' em regras.csv). Nunca lançar o bruto do BM.
 
-VALES DO MÊS (Rafael, 19/10/2026): os vales de um mês são abatidos no BM do FIM daquele mês (não no anterior).
-- Até sair o BM do mês: cada vale entra como custo no pagamento, rateado PROVISORIAMENTE entre 2.1.2 / 2.1.6 /
-  2.1.7 / 2.1.8 pelo avanço MEDIDO no mês (Δ% desde o fim do mês anterior × orçado da linha); sem medição no mês,
-  pelo cronograma. A rotina semanal (ferramentas/semana/atualizar.js) calcula a proposta a cada prévia
-  (saida_semana/<corte>/vales_<mês>.csv) e avisa quando o decisoes_pontuais.csv está diferente; copiar as linhas
-  da proposta para o decisoes_pontuais.csv (com backup) e rodar a prévia de novo. A proporção muda a cada medição.
-- SEMPRE que sair o BM do mês: TIRAR os vales do mês desse rateio provisório e lançá-los no local certo, pela
-  composição do BM (decisoes_pontuais.csv, alerta "provisório: refazer pelo BM do mês" → composição do BM). A carga
-  substitui o mês inteiro, então refazer não duplica nada.
+VALES DO MÊS (Rafael, 09/11/2026; substitui o rateio provisório de 19/10/2026): desde 01/10/2026 o vale NÃO é
+custo quando é pago. Ele é abatido no BM do FIM do mês e entra no custo com a medição, pelo BRUTO (pagamento do BM +
+vales do mês), na data do pagamento do BM, pela composição do BM.
+- Até sair o BM: o vale fica fora do custo; a prévia da rotina mostra "aguardando o BM do fim do mês".
+- Saiu o BM: (1) em sericita_bms.csv, uma linha por vale (bm, pagamento = documento do RPA/NF do BM, vale = documento
+  do vale); (2) em decisoes_pontuais.csv, a composição do BM no documento do pagamento (backup antes); (3) prévia.
+  O classificador.py soma os vales ao pagamento (bruto) e os tira do custo. Vales de ago e set: como foram gravados.
 
 ## Uso mensal
     py gerar_orcamento.py                         # quando o dados.json mudar

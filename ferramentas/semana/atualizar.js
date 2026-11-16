@@ -152,6 +152,10 @@ function montarOcs(ent, saida) {
   fs.readdirSync(dir).forEach((f) => fs.unlinkSync(path.join(dir, f)))
   fs.readdirSync(path.join(AUTOMACAO, 'oc')).filter((f) => /\.xlsx?$/i.test(f))
     .forEach((f) => fs.copyFileSync(path.join(AUTOMACAO, 'oc', f), path.join(dir, f)))
+  // relatórios de OC por mês e empresa (Rafael, 09/11/2026): automacao/entrada/relatorio OC/Relatorio de Ordem de Compra*
+  const dirRel = path.join(AUTOMACAO, 'entrada', 'relatorio OC')
+  if (fs.existsSync(dirRel)) fs.readdirSync(dirRel).filter((f) => /^Relatorio de Ordem de Compra.*\.xlsx?$/i.test(f) && !f.startsWith('~$'))
+    .forEach((f) => fs.copyFileSync(path.join(dirRel, f), path.join(dir, `rel_${f}`)))
   ent.ocs.forEach((f) => fs.copyFileSync(f, path.join(dir, `zz_${ent.corte}_${path.basename(f)}`)))
   return dir
 }
@@ -187,7 +191,22 @@ async function ultimaCarga(db) {
   return L
 }
 
-// ── vales da Sericita do mês do corte: rateio PROVISÓRIO pela medição (Rafael 19/10/2026) ───────────────────────────
+// ── vales da Sericita (Rafael 09/11/2026; substitui o rateio provisório de 19/10) ──────────────────────────────────
+// Desde 01/10/2026 o vale NÃO é custo no pagamento: entra somado ao pagamento do BM do fim do mês (bruto), pela
+// composição do BM. Quem soma é o classificador.py (sericita_bms.csv); aqui só se lista o que está no BM e o que aguarda.
+function valesSericita(corte, titulos) {
+  const bms = lerCsv(path.join(AUTOMACAO, 'sericita_bms.csv'))
+  const vales = titulos.filter((t) => t.cnpj === SERICITA && /ADIANT/i.test(t.documento) && t.baixa >= '2026-10-01' && t.baixa <= corte)
+  const noBm = [], aguardando = []
+  vales.forEach((v) => {
+    const b = bms.find((x) => txt(x.vale).trim() === txt(v.documento).trim())
+    if (b) noBm.push({ ...v, bm: b.bm, pagamento: b.pagamento })
+    else aguardando.push(v)
+  })
+  return { noBm, aguardando }
+}
+
+// ── (ANTIGO, sem uso desde 09/11/2026) vales da Sericita do mês do corte: rateio PROVISÓRIO pela medição (19/10/2026) ──
 // Os vales de um mês são abatidos no BM do FIM do mês (não no anterior). Até o BM sair, cada vale do mês é rateado entre
 // as linhas do contrato pelo avanço MEDIDO no mês (Δ% desde o fim do mês anterior × orçado da linha); sem medição no
 // mês, pelo cronograma (parte da duração de cada linha que cai no mês × orçado). Saiu o BM: refazer TODOS os vales do
@@ -432,17 +451,9 @@ async function previa(db) {
   const mat = info.oc.vinculos.filter((x) => x.fonte === 'Dinâmica' && x.baixa <= corte)
   const ligado = soma(mat.filter((x) => x.oc)), totMat = soma(mat)
 
-  // 7b. vales da Sericita do mês: proposta provisória pela medição x o que está no decisoes_pontuais.csv
-  const pv = await propostaVales(db, corte, info.titulos)
-  fs.writeFileSync(path.join(saida, `vales_${pv.mes}.csv`), '﻿' + pv.csv)
-  const dec = lerCsv(path.join(AUTOMACAO, 'decisoes_pontuais.csv'))
-  pv.vales.forEach((v) => {
-    const atual = dec.filter((d) => d.cnpj === SERICITA && d.documento === v.documento)
-    const igual = atual.length === pv.linhas.filter((l) => l.proporcao > 0).length &&
-      pv.linhas.filter((l) => l.proporcao > 0).every((l) => atual.some((d) => d.eap === l.codigo_eap && Math.abs(Number(d.proporcao) - l.proporcao) < 1e-6))
-    v.situacao = !atual.length ? 'sem rateio no decisoes_pontuais.csv' : igual ? 'igual à proposta' : 'DIFERENTE da proposta (atualizar o decisoes_pontuais.csv)'
-    if (!igual) avisos.push(`vale da Sericita ${v.documento} ${fmt(v.valor)}: ${v.situacao} — proposta em automacao/${saidaRel}/vales_${pv.mes}.csv`)
-  })
+  // 7b. vales da Sericita (Rafael 09/11/2026): não são custo no pagamento; entram no bruto do BM do fim do mês
+  const pv = valesSericita(corte, info.titulos)
+  pv.aguardando.forEach((v) => avisos.push(`vale da Sericita ${v.documento} ${fmt(v.valor)} (${br(v.baixa)}) aguardando o BM do fim do mês: NÃO entra no custo agora; quando sair a medição, ligar o vale ao pagamento do BM em automacao/sericita_bms.csv e pôr a composição do BM no decisoes_pontuais.csv`))
 
   const est = { corte, soPagos, meses, mesesGravar, chavesNovas: chavesNovas.length, bloqueios: [...bloqueios], travasImportar,
     pendencias: pend.length, novos: novos.length, gerado: new Date().toISOString() }
@@ -457,7 +468,7 @@ async function previa(db) {
   ultima.forEach((l) => p(`- ${l}`))
   p()
   p(`- Pastas: ${ent.base === ENTRADA ? 'automacao/entrada/' : ent.base} dinamica/ e fonseca/ · relatórios (os mais novos): ${path.basename(ent.fonseca)} | ${path.basename(ent.dinamica)}` +
-    ` · ${ent.fon.historico + ent.din.historico} antigo(s) mantido(s) como histórico | OC: automacao/oc`)
+    ` · ${ent.fon.historico + ent.din.historico} antigo(s) mantido(s) como histórico | OC: automacao/oc + automacao/entrada/relatorio OC`)
   p(`- Tipo: ACUMULADO desde ${minMes} (pagamentos de ${br(baixaMin)} a ${br(corte)}): substitui os meses com diferença`)
   p(`- Linhas lidas: Fonseca ${info.linhas.Fonseca} (${info.pagos.Fonseca} pagas) · Dinâmica ${info.linhas['Dinâmica']} (${info.pagos['Dinâmica']} pagas) · títulos pagos até o corte: ${pagosAte.length}`)
   if (depoisCorte.length) p(`- Pagos DEPOIS do corte (ficam para a próxima carga; no a pagar deste corte): ${depoisCorte.map((t) => `${t.fornecedor} ${t.documento} ${fmt(t.valor)} em ${br(t.baixa)}`).join('; ')}`)
@@ -485,11 +496,11 @@ async function previa(db) {
   p(`- Ligado a OC: ${fmt(ligado)} de ${fmt(totMat)} (${totMat > 0 ? (100 * ligado / totMat).toFixed(1).replace('.', ',') : '0'}%) · chave: nº da NF + CNPJ da OC (ou nº da OC no documento)`)
   p(`- NFs pagas sem OC: ${mat.filter((x) => !x.oc).map((x) => `${x.fornecedor} ${x.documento} ${fmt(x.valor)}`).join('; ') || 'nenhuma'}`)
   p(`- OCs sem NF (compras não faturadas; NÃO são custo nem a pagar): ${info.oc.oc_sem_nf.filter((x) => !['1787', '1849'].includes(String(x.oc))).map((x) => `OC ${x.oc} ${x.fornecedor} ${fmt(x.total)}`).join('; ') || 'nenhuma'}`)
-  p(); p(`## Vales da Sericita de ${pv.mes} — rateio PROVISÓRIO até o BM do fim do mês (${pv.origem})`)
-  pv.linhas.forEach((l) => p(`- ${l.codigo_eap} ${l.pavimento}: ${l.de.toFixed(2).replace('.', ',')}% → ${l.ate.toFixed(2).replace('.', ',')}% · orçado ${fmt(l.orcado)} · peso ${(100 * l.proporcao).toFixed(2).replace('.', ',')}%`))
-  pv.vales.forEach((v) => p(`- vale ${v.documento} ${fmt(v.valor)} (${br(v.baixa)}): ${v.situacao}`))
-  if (!pv.vales.length) p('- nenhum vale no mês até o corte')
-  p(`- Saiu o BM do mês: refazer TODOS os vales do mês pela composição do BM (CLAUDE.md, seção Sericita).`)
+  p(); p(`## Vales da Sericita — entram no custo só com o BM do fim do mês, pelo bruto (Rafael 09/11/2026)`)
+  pv.noBm.forEach((v) => p(`- vale ${v.documento} ${fmt(v.valor)} (${br(v.baixa)}): somado ao pagamento ${v.pagamento} do ${v.bm}`))
+  pv.aguardando.forEach((v) => p(`- vale ${v.documento} ${fmt(v.valor)} (${br(v.baixa)}): AGUARDANDO o BM do fim do mês (fora do custo desta carga)`))
+  if (!pv.noBm.length && !pv.aguardando.length) p('- nenhum vale desde 01/10/2026 até o corte')
+  p(`- Saiu o BM: ligar cada vale do mês ao pagamento do BM em automacao/sericita_bms.csv e pôr a composição do BM no decisoes_pontuais.csv (documento do pagamento).`)
   p(); p(`## PENDÊNCIAS de classificação (${pend.length})`)
   pend.forEach((l) => p(`- ${l.mes} · ${l.fornecedor} ${l.documento} ${fmt(l.valor)} · ${txt(l.regra)}`))
   if (!pend.length) p('- nenhuma')
