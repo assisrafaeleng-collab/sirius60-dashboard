@@ -418,8 +418,10 @@ Regras deste projeto. Valem para TODA tarefa, mesmo em auto mode.
   proporcional aos m³. Contas a pagar 'previsto_sem_nf', fechamento 2026-11-06, venc. ESTIMADO 18/12/2026
   (automacao/previas/2026-11-09_concreto/contas_oc39924.sql RODADO 09/11: fechamento = 13 linhas, R$ 73.936,21). Quando a
   NF chegar: decisão no decisoes_pontuais.csv com a mesma divisão 3.1.3 / 2.1.5.
-- CORTE 13/11/2026 (pedido 010, 16/11/2026; automacao/previas/2026-11-13/resumo.md). SQLs GERADOS, NÃO rodados. Ordem:
-  carga_2026-11-13.sql (10 linhas, 4 títulos, R$ 32.996,21; importação b2451416-3b06-46e1-a43d-d3b9b4751184: Betonita NF 725
+- CORTE 13/11/2026 (pedido 010, 16/11/2026; automacao/previas/2026-11-13/resumo.md). SQLs RODADOS pelo Rafael em 16/11/2026
+  (contas a pagar conferido: fechamento 2026-11-13 = 7 linhas, R$ 49.828,94; os anteriores intactos). Ordem:
+  carga_2026-11-13.sql (5 linhas = uma por nota + EAP, por causa do índice único uniq_documento_eap_carga; a 1ª versão com 10
+  linhas parou no índice sem gravar nada; 4 títulos, R$ 32.996,21; importação b2451416-3b06-46e1-a43d-d3b9b4751184: Betonita NF 725
   32.340,00 em 2.1.5 paga 09/11, CEMIG 258,03, Essencial 100,00, Tecidos 25733847/01 298,18; todos estavam no a pagar de 06/11)
   → contas_2026-11-13.sql (fechamento '2026-11-13', 5 linhas, R$ 25.988,94; carga 3f9847ad…) → contas_oc39924_2026-11-13.sql
   (OC 39924, carga 9d1f6c3e…; fechamento fica com 7 linhas, R$ 49.828,94) → conferencia_2026-11-13.sql (nov R$ 33.708,25).
